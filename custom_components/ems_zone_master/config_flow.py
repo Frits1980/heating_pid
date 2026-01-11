@@ -1,0 +1,350 @@
+"""Config flow for EMS Zone Master integration.
+
+Implements a 3-step configuration wizard:
+1. Heater configuration - Select EMS-ESP entities for boiler control
+2. Global settings - Configure temperature limits and thresholds
+3. Zone configuration - Add heating zones with temperature sensors, valves, etc.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+import voluptuous as vol
+
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
+from homeassistant.const import CONF_NAME
+from homeassistant.core import callback
+from homeassistant.helpers import selector
+
+from .const import (
+    CONF_FLOW_TEMP_ENTITY,
+    CONF_HEATER_ENTITY,
+    CONF_KD,
+    CONF_KE,
+    CONF_KI,
+    CONF_KP,
+    CONF_MAX_EGRESS,
+    CONF_MIN_EGRESS,
+    CONF_MIN_IGNITION_LEVEL,
+    CONF_OUTDOOR_TEMP_ENTITY,
+    CONF_RETURN_TEMP_ENTITY,
+    CONF_SOLAR_DROP,
+    CONF_SOLAR_POWER_ENTITY,
+    CONF_SOLAR_THRESHOLD,
+    CONF_ZONE_DEFAULT_SETPOINT,
+    CONF_ZONE_NAME,
+    CONF_ZONE_SCHEDULE_ENTITY,
+    CONF_ZONE_TEMP_ENTITY,
+    CONF_ZONE_VALVE_ENTITY,
+    CONF_ZONE_WINDOW_ENTITY,
+    CONF_ZONES,
+    DEFAULT_KD,
+    DEFAULT_KE,
+    DEFAULT_KI,
+    DEFAULT_KP,
+    DEFAULT_MAX_EGRESS,
+    DEFAULT_MIN_EGRESS,
+    DEFAULT_MIN_IGNITION_LEVEL,
+    DEFAULT_SETPOINT,
+    DEFAULT_SOLAR_DROP,
+    DEFAULT_SOLAR_THRESHOLD,
+    DOMAIN,
+)
+
+_LOGGER = logging.getLogger(__name__)
+
+
+class EmsZoneMasterConfigFlow(ConfigFlow, domain=DOMAIN):
+    """Handle a config flow for EMS Zone Master.
+
+    The flow progresses through three steps:
+    1. async_step_user - Heater entity selection
+    2. async_step_global - Global settings
+    3. async_step_zones - Zone configuration (repeatable)
+    """
+
+    VERSION = 1
+
+    def __init__(self) -> None:
+        """Initialize the config flow."""
+        self._data: dict[str, Any] = {}
+        self._zones: list[dict[str, Any]] = []
+
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle the heater configuration step.
+
+        Collects EMS-ESP entity IDs for:
+        - Heater control (number entity for flow temperature setpoint)
+        - Flow temperature sensor
+        - Return temperature sensor
+        - Outdoor temperature sensor
+        - Solar power sensor (optional)
+
+        Args:
+            user_input: Form data if submitted, None for initial display
+
+        Returns:
+            Flow result - either show form or proceed to next step
+        """
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            # Validate entities exist
+            # TODO: Phase 1 - Add entity validation
+            self._data.update(user_input)
+            return await self.async_step_global()
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_HEATER_ENTITY): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="number")
+                ),
+                vol.Required(CONF_FLOW_TEMP_ENTITY): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Required(CONF_RETURN_TEMP_ENTITY): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Required(CONF_OUTDOOR_TEMP_ENTITY): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional(CONF_SOLAR_POWER_ENTITY): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="user",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={"name": "EMS Zone Master"},
+        )
+
+    async def async_step_global(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle the global settings step.
+
+        Collects global parameters:
+        - Min/max egress (flow) temperatures
+        - Minimum ignition level (demand threshold)
+        - Solar threshold and temperature drop
+
+        Args:
+            user_input: Form data if submitted, None for initial display
+
+        Returns:
+            Flow result - either show form or proceed to zones step
+        """
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            # Validate temperature range
+            if user_input[CONF_MIN_EGRESS] >= user_input[CONF_MAX_EGRESS]:
+                errors["base"] = "invalid_temp_range"
+            else:
+                self._data.update(user_input)
+                return await self.async_step_zones()
+
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_MIN_EGRESS, default=DEFAULT_MIN_EGRESS
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=20, max=40, step=1, unit_of_measurement="°C"
+                    )
+                ),
+                vol.Required(
+                    CONF_MAX_EGRESS, default=DEFAULT_MAX_EGRESS
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=35, max=80, step=1, unit_of_measurement="°C"
+                    )
+                ),
+                vol.Required(
+                    CONF_MIN_IGNITION_LEVEL, default=DEFAULT_MIN_IGNITION_LEVEL
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=50, step=5, unit_of_measurement="%"
+                    )
+                ),
+                vol.Required(
+                    CONF_SOLAR_THRESHOLD, default=DEFAULT_SOLAR_THRESHOLD
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=10000, step=100, unit_of_measurement="W"
+                    )
+                ),
+                vol.Required(
+                    CONF_SOLAR_DROP, default=DEFAULT_SOLAR_DROP
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=10, step=0.5, unit_of_measurement="°C"
+                    )
+                ),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="global",
+            data_schema=schema,
+            errors=errors,
+        )
+
+    async def async_step_zones(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle the zone configuration step.
+
+        Collects per-zone configuration:
+        - Zone name
+        - Temperature sensor entity
+        - Valve entity (switch or climate)
+        - Window sensor entity (optional)
+        - Schedule entity (optional)
+        - Default setpoint
+        - PID gains (Kp, Ki, Kd, Ke)
+
+        This step can be repeated to add multiple zones.
+
+        Args:
+            user_input: Form data if submitted, None for initial display
+
+        Returns:
+            Flow result - show form, add another zone, or complete setup
+        """
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            if user_input.get("add_another", False):
+                # Store this zone and show form again
+                zone_data = {k: v for k, v in user_input.items() if k != "add_another"}
+                self._zones.append(zone_data)
+                return await self.async_step_zones()
+            else:
+                # Store final zone and complete
+                zone_data = {k: v for k, v in user_input.items() if k != "add_another"}
+                self._zones.append(zone_data)
+                self._data[CONF_ZONES] = self._zones
+                return self.async_create_entry(
+                    title="EMS Zone Master",
+                    data=self._data,
+                )
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_ZONE_NAME): selector.TextSelector(),
+                vol.Required(CONF_ZONE_TEMP_ENTITY): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Required(CONF_ZONE_VALVE_ENTITY): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain=["switch", "climate"])
+                ),
+                vol.Optional(CONF_ZONE_WINDOW_ENTITY): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="binary_sensor")
+                ),
+                vol.Optional(CONF_ZONE_SCHEDULE_ENTITY): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="schedule")
+                ),
+                vol.Required(
+                    CONF_ZONE_DEFAULT_SETPOINT, default=DEFAULT_SETPOINT
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=5, max=30, step=0.5, unit_of_measurement="°C"
+                    )
+                ),
+                vol.Required(CONF_KP, default=DEFAULT_KP): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=0, max=100, step=1)
+                ),
+                vol.Required(CONF_KI, default=DEFAULT_KI): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=0, max=5, step=0.1)
+                ),
+                vol.Required(CONF_KD, default=DEFAULT_KD): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=0, max=50, step=1)
+                ),
+                vol.Required(CONF_KE, default=DEFAULT_KE): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=0, max=0.1, step=0.005)
+                ),
+                vol.Optional("add_another", default=False): selector.BooleanSelector(),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="zones",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={"zone_count": str(len(self._zones) + 1)},
+        )
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        """Get the options flow for this handler.
+
+        Returns:
+            Options flow handler instance
+        """
+        return EmsZoneMasterOptionsFlow(config_entry)
+
+
+class EmsZoneMasterOptionsFlow(OptionsFlow):
+    """Handle options flow for EMS Zone Master.
+
+    Allows modification of:
+    - Global temperature settings
+    - Zone PID parameters
+    - Solar and efficiency settings
+    """
+
+    def __init__(self, config_entry: ConfigEntry) -> None:
+        """Initialize options flow."""
+        self.config_entry = config_entry
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle options flow initialization.
+
+        Args:
+            user_input: Form data if submitted, None for initial display
+
+        Returns:
+            Flow result - show form or save options
+        """
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        # TODO: Phase 2 - Implement options flow with current values
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_MIN_EGRESS,
+                    default=self.config_entry.data.get(CONF_MIN_EGRESS, DEFAULT_MIN_EGRESS),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=20, max=40, step=1, unit_of_measurement="°C"
+                    )
+                ),
+                vol.Required(
+                    CONF_MAX_EGRESS,
+                    default=self.config_entry.data.get(CONF_MAX_EGRESS, DEFAULT_MAX_EGRESS),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=35, max=80, step=1, unit_of_measurement="°C"
+                    )
+                ),
+            }
+        )
+
+        return self.async_show_form(step_id="init", data_schema=schema)

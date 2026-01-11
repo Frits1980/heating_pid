@@ -1,0 +1,138 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Heater Configuration",
+        "description": "Configure the EMS-ESP entities for boiler control.",
+        "data": {
+          "heater_entity": "Flow Temperature Setpoint",
+          "flow_temp_entity": "Flow Temperature Sensor",
+          "return_temp_entity": "Return Temperature Sensor",
+          "outdoor_temp_entity": "Outdoor Temperature Sensor",
+          "solar_power_entity": "Solar Power Sensor (optional)"
+        },
+        "data_description": {
+          "heater_entity": "Number entity to control boiler flow temperature setpoint",
+          "flow_temp_entity": "Sensor showing current boiler flow temperature",
+          "return_temp_entity": "Sensor showing current boiler return temperature",
+          "outdoor_temp_entity": "Sensor showing outdoor temperature for compensation",
+          "solar_power_entity": "Sensor showing current solar power generation (for limiting)"
+        }
+      },
+      "global": {
+        "title": "Global Settings",
+        "description": "Configure temperature limits and efficiency settings.",
+        "data": {
+          "min_egress": "Minimum Flow Temperature",
+          "max_egress": "Maximum Flow Temperature",
+          "min_ignition_level": "Minimum Ignition Level",
+          "solar_threshold": "Solar Power Threshold",
+          "solar_drop": "Solar Temperature Drop"
+        },
+        "data_description": {
+          "min_egress": "Lowest flow temperature when minimal heating is needed",
+          "max_egress": "Highest flow temperature for maximum demand",
+          "min_ignition_level": "Demand percentage below which heater stays off",
+          "solar_threshold": "Solar power level above which heating is reduced",
+          "solar_drop": "Temperature reduction when solar threshold is exceeded"
+        }
+      },
+      "zones": {
+        "title": "Zone Configuration",
+        "description": "Configure heating zone {zone_count}.",
+        "data": {
+          "zone_name": "Zone Name",
+          "zone_temp_entity": "Temperature Sensor",
+          "zone_valve_entity": "Valve Control",
+          "zone_window_entity": "Window Sensor (optional)",
+          "zone_schedule_entity": "Schedule (optional)",
+          "zone_default_setpoint": "Default Setpoint",
+          "kp": "Kp (Proportional Gain)",
+          "ki": "Ki (Integral Gain)",
+          "kd": "Kd (Derivative Gain)",
+          "ke": "Ke (Outdoor Compensation)",
+          "add_another": "Add Another Zone"
+        },
+        "data_description": {
+          "zone_name": "Unique name for this heating zone",
+          "zone_temp_entity": "Temperature sensor for this zone",
+          "zone_valve_entity": "Switch or climate entity controlling zone valve",
+          "zone_window_entity": "Binary sensor detecting open windows",
+          "zone_schedule_entity": "Schedule helper for automatic setpoints",
+          "zone_default_setpoint": "Default target temperature when no schedule active",
+          "kp": "How aggressively to respond to temperature error",
+          "ki": "How much to compensate for accumulated error",
+          "kd": "How much to dampen rapid temperature changes",
+          "ke": "How much to boost output when cold outside",
+          "add_another": "Check to add another zone after this one"
+        }
+      }
+    },
+    "error": {
+      "invalid_temp_range": "Maximum temperature must be greater than minimum",
+      "entity_not_found": "Entity not found",
+      "zone_name_exists": "Zone name already exists"
+    },
+    "abort": {
+      "already_configured": "Integration is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "EMS Zone Master Options",
+        "description": "Adjust global settings.",
+        "data": {
+          "min_egress": "Minimum Flow Temperature",
+          "max_egress": "Maximum Flow Temperature"
+        }
+      }
+    }
+  },
+  "entity": {
+    "climate": {
+      "zone": {
+        "name": "{zone_name}"
+      }
+    },
+    "sensor": {
+      "time_to_target": {
+        "name": "{zone_name} Time to Target"
+      },
+      "master_status": {
+        "name": "Master Status"
+      },
+      "target_flow_temp": {
+        "name": "Target Flow Temperature"
+      },
+      "total_demand": {
+        "name": "Total Demand"
+      }
+    },
+    "binary_sensor": {
+      "cooldown": {
+        "name": "Cooldown Active"
+      },
+      "zone_heating": {
+        "name": "{zone_name} Heating"
+      },
+      "zone_window": {
+        "name": "{zone_name} Window"
+      }
+    },
+    "number": {
+      "kp": {
+        "name": "{zone_name} Kp (Proportional)"
+      },
+      "ki": {
+        "name": "{zone_name} Ki (Integral)"
+      },
+      "kd": {
+        "name": "{zone_name} Kd (Derivative)"
+      },
+      "ke": {
+        "name": "{zone_name} Ke (Outdoor)"
+      }
+    }
+  }
+}
