@@ -4,10 +4,10 @@
   "codeowners": [],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/your-repo/ems_zone_master",
+  "documentation": "https://gitea.fgpm.nl/frits/HA-heating",
   "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/your-repo/ems_zone_master/issues",
+  "issue_tracker": "https://gitea.fgpm.nl/frits/HA-heating/issues",
   "requirements": [],
-  "version": "0.1.0",
-  "homeassistant": "2024.1.0"
+  "homeassistant": "2024.1.0",
+  "integration_type": "hub"
 }
