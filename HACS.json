@@ -1,3 +1,5 @@
 {
-    "name": "Heating PID (dry construction underfloor heating)"
+    "name": "Heating PID (dry construction underfloor heating)",
+    "homeassistant": "2021.0.0",
+    "render_readme": false
 }
