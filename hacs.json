@@ -1,5 +1,5 @@
 {
-  "name": "EMS Zone Master",
+  "name": "Heating PID (dry construction underfloor heating)",
   "homeassistant": "2024.1.0",
   "render_readme": true
 }
