@@ -1,6 +1,6 @@
 """Persistence store for EMS Zone Master.
 
-Handles JSON storage of learned data in `.storage/ems_zone_master.json`:
+Handles JSON storage of learned data in `.storage/heating_pid.json`:
 - Warmup factors per zone (learned minutes per degree for adaptive start)
 - PID integral values per zone (for bumpless transfer on restart)
 

@@ -24,7 +24,7 @@ A Home Assistant custom integration for modulating heating control via EMS-ESP. 
 
 ### Manual Installation
 
-1. Copy the `custom_components/ems_zone_master` folder to your Home Assistant `custom_components` directory
+1. Copy the `custom_components/heating_pid` folder to your Home Assistant `custom_components` directory
 2. Restart Home Assistant
 3. Go to Settings > Devices & Services > Add Integration
 4. Search for "EMS Zone Master"
@@ -40,12 +40,14 @@ The integration uses a 3-step configuration flow:
 ## Entities
 
 ### Per Zone
+
 - **Climate**: Temperature control with current/target temperature
 - **Sensor**: Time to target estimate
 - **Binary Sensor**: Heating active indicator, window state
 - **Number**: PID gain tuning (Kp, Ki, Kd, Ke)
 
 ### Global
+
 - **Sensor**: Master status, target flow temperature, total demand
 - **Binary Sensor**: Cooldown active indicator
 

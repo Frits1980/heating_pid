@@ -8,30 +8,33 @@ Before presenting the coding plan, here is the consolidated technical specificat
 
 **Core Integration: EMS Zone Master**
 
-| Aspect | Decision |
-|--------|----------|
-| Control Method | Modulating flow temperature via EMS-ESP |
-| Zone Input | One temperature sensor, one window binary sensor per zone |
-| Valve Control | Switch entities with configurable opening delay |
-| Schedule Backend | Native Home Assistant schedule helpers |
-| PID Configuration | Anti-windup enabled, derivative on process variable, multiplicative outdoor compensation |
-| Learning Algorithm | Exponential weighted moving average with bounds (±10% per learning event) |
-| Persistence | Configurable interval with shutdown save |
-| Minimum Runtime | Implemented in integration (user configures value) |
-| Delta-T Cooldown | Dynamic exit (recovers when Delta-T exceeds threshold) |
+| Aspect             | Decision                                                                                 |
+| ------------------ | ---------------------------------------------------------------------------------------- |
+| Control Method     | Modulating flow temperature via EMS-ESP                                                  |
+| Zone Input         | One temperature sensor, one window binary sensor per zone                                |
+| Valve Control      | Switch entities with configurable opening delay                                          |
+| Schedule Backend   | Native Home Assistant schedule helpers                                                   |
+| PID Configuration  | Anti-windup enabled, derivative on process variable, multiplicative outdoor compensation |
+| Learning Algorithm | Exponential weighted moving average with bounds (±10% per learning event)                |
+| Persistence        | Configurable interval with shutdown save                                                 |
+| Minimum Runtime    | Implemented in integration (user configures value)                                       |
+| Delta-T Cooldown   | Dynamic exit (recovers when Delta-T exceeds threshold)                                   |
 
 **Priority Hierarchy (highest to lowest):**
+
 1. Window open → setpoint reduced by configured delta
 2. Manual setpoint → persists until next schedule event
 3. Schedule setpoint → baseline operation
 4. Synchronization forcing → treated as schedule-level
 
 **Entities Created Per Zone:**
+
 - `climate.{zone_name}` — main thermostat interface
 - `sensor.{zone_name}_time_to_target` — estimated minutes remaining
 - `number.{zone_name}_kp` / `ki` / `kd` / `ke` — live PID tuning
 
 **Global Entities Created:**
+
 - `sensor.ems_master_status` — current strategy and state
 - `number.ems_heater_min_egress` / `max_egress` — temperature curve bounds
 - `binary_sensor.ems_heater_cooldown_active` — Delta-T cooldown indicator
@@ -53,7 +56,7 @@ The plan is divided into seven phases. Each phase produces a testable, functiona
 Create the following directory structure under `custom_components/`:
 
 ```
-ems_zone_master/
+heating_pid/
 ├── __init__.py
 ├── manifest.json
 ├── const.py
@@ -74,6 +77,7 @@ Define all constants including domain name, configuration keys, and default valu
 **Step 1.4 — Implement config_flow.py Step 1 (Heater)**
 
 Create the first configuration step requesting the following entity selections and inputs:
+
 - Egress setpoint entity (number) — the entity we write target flow temperature to
 - Egress limit entity (number) — hardware maximum
 - Egress sensor entity (sensor) — current supply temperature
@@ -87,7 +91,7 @@ Create the first configuration step requesting the following entity selections a
 
 Create user-facing text for the configuration flow in English.
 
-**Step 1.6 — Implement __init__.py (basic)**
+**Step 1.6 — Implement **init**.py (basic)**
 
 Implement `async_setup_entry` to load configuration and log successful setup. No coordinator logic yet.
 
@@ -102,6 +106,7 @@ Implement `async_setup_entry` to load configuration and log successful setup. No
 **Step 2.1 — Implement config_flow.py Step 2 (Global Settings)**
 
 Add the second configuration step requesting:
+
 - Solar power sensor entity (sensor, optional)
 - Solar threshold in watts (integer)
 - Solar temperature drop in °C (float)
@@ -115,6 +120,7 @@ Add the second configuration step requesting:
 **Step 2.2 — Implement config_flow.py Step 3 (Zone Configuration)**
 
 Create a looping zone configuration step. For each zone:
+
 - Zone name (string)
 - Temperature sensor entity (sensor)
 - Humidity sensor entity (sensor, optional)
@@ -142,6 +148,7 @@ Allow reconfiguration of global settings and zone parameters after initial setup
 **Step 3.1 — Create coordinator.py**
 
 Implement `EmsZoneMasterCoordinator` extending `DataUpdateCoordinator`. Configure update interval of 30 seconds. Initialize data structures for:
+
 - Heater state (current egress, ingress, delta-T, active strategy)
 - Zone states (current temp, target temp, demand level, valve states)
 - Learned warmup factors per zone
@@ -149,13 +156,15 @@ Implement `EmsZoneMasterCoordinator` extending `DataUpdateCoordinator`. Configur
 
 **Step 3.2 — Create store.py**
 
-Implement `EmsZoneMasterStore` class handling JSON file persistence in `.storage/ems_zone_master.json`. Include methods for:
+Implement `EmsZoneMasterStore` class handling JSON file persistence in `.storage/heating_pid.json`. Include methods for:
+
 - `async_load()` — load state on startup
 - `async_save()` — save current state
 - `async_save_on_interval()` — periodic save based on configured interval
 - Integration with `async_will_remove_from_hass` for shutdown save
 
 Stored data structure:
+
 ```python
 {
     "zones": {
@@ -169,7 +178,7 @@ Stored data structure:
 }
 ```
 
-**Step 3.3 — Update __init__.py**
+**Step 3.3 — Update **init**.py**
 
 Initialize the coordinator and store during setup. Load persisted state before first coordinator update.
 
@@ -184,6 +193,7 @@ Initialize the coordinator and store during setup. Load persisted state before f
 **Step 4.1 — Create climate.py**
 
 Implement `EmsZoneClimate` extending `ClimateEntity`. Features:
+
 - HVAC modes: `heat` and `off`
 - Temperature range: 5°C to 30°C
 - Current temperature from configured sensor
@@ -193,6 +203,7 @@ Implement `EmsZoneClimate` extending `ClimateEntity`. Features:
 **Step 4.2 — Implement PID controller**
 
 Create `pid.py` with `PIDController` class implementing:
+
 - Proportional term: `Kp × error`
 - Integral term with anti-windup (clamp integral when output saturates, reset when error crosses zero)
 - Derivative term on process variable (rate of change of actual temperature, not error)
@@ -200,6 +211,7 @@ Create `pid.py` with `PIDController` class implementing:
 - Output clamped to 0-100% range
 
 Default gains (tunable via number entities later):
+
 - Kp: 30
 - Ki: 0.5
 - Kd: 10
@@ -208,6 +220,7 @@ Default gains (tunable via number entities later):
 **Step 4.3 — Implement demand calculation in coordinator**
 
 Each update cycle:
+
 1. For each zone, calculate PID demand based on current vs target temperature
 2. Track highest demand across all active zones (max_demand)
 3. Store demand values in coordinator data
@@ -227,11 +240,13 @@ Create `number.py` implementing number entities for each zone's Kp, Ki, Kd, Ke v
 **Step 5.1 — Implement demand curve calculation**
 
 In coordinator, calculate target egress temperature:
+
 ```
 target = min_egress + (max_demand / 100) × (max_egress - min_egress)
 ```
 
 Apply constraints in order:
+
 1. Low level filter: if max_demand < min_ignition_level, target = 0
 2. Solar limiter: if solar_power > threshold, subtract solar_drop from target
 3. Clamp to hardware maximum (egress limit entity value)
@@ -239,6 +254,7 @@ Apply constraints in order:
 **Step 5.2 — Implement Delta-T monitoring and cooldown mode**
 
 Track Delta-T (egress - ingress). When Delta-T falls below min_efficient_delta:
+
 1. Enter cooldown mode
 2. Set egress setpoint to minimum (effectively burner off)
 3. Keep pump running (do not close valves)
@@ -251,11 +267,13 @@ Track burner start timestamp. Prevent setting egress to zero until minimum runti
 **Step 5.4 — Implement valve control**
 
 For each zone with demand > 0:
+
 1. Turn on valve switch entities
 2. Wait for valve opening time before considering zone "ready"
 3. Only include zone in active demand calculation once valves are confirmed open
 
 For zones with demand = 0:
+
 1. Close valves after configurable delay (prevent rapid cycling)
 
 **Step 5.5 — Implement heater command execution**
@@ -273,6 +291,7 @@ Write calculated target egress temperature to the setpoint entity. Log all comma
 **Step 6.1 — Implement schedule reader**
 
 Create `schedule.py` with functions to:
+
 - Read current and next scheduled setpoint from Home Assistant schedule entity
 - Calculate time until next schedule change
 - Determine if zone is in "scheduled active" period
@@ -280,6 +299,7 @@ Create `schedule.py` with functions to:
 **Step 6.2 — Implement window logic**
 
 In climate entity and coordinator:
+
 1. Monitor window binary sensor state
 2. When window opens: reduce target setpoint by configured drop (maintain frost protection)
 3. When window closes: restore original setpoint
@@ -288,6 +308,7 @@ In climate entity and coordinator:
 **Step 6.3 — Implement manual setpoint handling**
 
 Track when user manually adjusts setpoint:
+
 1. Store manual setpoint and timestamp
 2. Manual setpoint overrides schedule until next schedule event
 3. When next schedule event occurs, clear manual override and follow schedule
@@ -295,6 +316,7 @@ Track when user manually adjusts setpoint:
 **Step 6.4 — Implement adaptive start**
 
 Using learned warmup factor and schedule data:
+
 1. Read next scheduled setpoint and time from schedule entity
 2. Calculate required start time: `start = scheduled_time - (temp_delta × warmup_factor)`
 3. If current time > calculated start time, begin heating early
@@ -303,6 +325,7 @@ Using learned warmup factor and schedule data:
 **Step 6.5 — Implement warmup factor learning**
 
 After reaching target temperature:
+
 1. Calculate actual warmup speed: `elapsed_minutes / temp_rise`
 2. Update learned factor using exponential moving average: `new = 0.8 × old + 0.2 × measured`
 3. Apply bounds: new factor must be within ±10% of previous (prevents outlier overcorrection)
@@ -311,6 +334,7 @@ After reaching target temperature:
 **Step 6.6 — Create time-to-target sensor**
 
 Create `sensor.py` implementing sensor entity showing estimated minutes remaining:
+
 ```
 minutes = (target - current) × learned_warmup_factor
 ```
@@ -326,6 +350,7 @@ minutes = (target - current) × learned_warmup_factor
 **Step 7.1 — Implement smart synchronization**
 
 In coordinator update cycle, when any zone is actively heating:
+
 1. Iterate through inactive zones
 2. For each inactive zone, check schedule for next event time
 3. If next event is within sync_look_ahead_time and would start heating:
@@ -336,6 +361,7 @@ In coordinator update cycle, when any zone is actively heating:
 **Step 7.2 — Implement valve maintenance routine**
 
 In coordinator:
+
 1. Track last maintenance timestamp from store
 2. On each update, check if maintenance is due based on configured frequency
 3. When due:
@@ -348,6 +374,7 @@ In coordinator:
 **Step 7.3 — Create master status sensor**
 
 Implement `sensor.ems_master_status` with:
+
 - State: current strategy (Idle, Heating, Solar Limited, Cooldown, Maintenance, Synchronizing)
 - Attributes:
   - `active_zones`: list of currently heating zones
@@ -360,6 +387,7 @@ Implement `sensor.ems_master_status` with:
 **Step 7.4 — Implement sensor unavailability handling**
 
 Add error handling throughout coordinator:
+
 1. If critical sensor (egress, ingress, zone temp) becomes unavailable:
    - Log warning
    - Fire Home Assistant event for notification automation
@@ -369,6 +397,7 @@ Add error handling throughout coordinator:
 **Step 7.5 — Final testing and refinement**
 
 Comprehensive testing across all features:
+
 - Multiple zone coordination
 - Schedule transitions
 - Edge cases (all zones off, all zones max demand)
@@ -383,13 +412,13 @@ Comprehensive testing across all features:
 
 At completion, you will have:
 
-| Component | Files |
-|-----------|-------|
-| Integration Core | `__init__.py`, `manifest.json`, `const.py` |
-| Configuration | `config_flow.py`, `strings.json`, `translations/en.json` |
-| Coordinator | `coordinator.py`, `store.py`, `schedule.py` |
-| Control Logic | `pid.py` |
-| Entities | `climate.py`, `sensor.py`, `number.py`, `binary_sensor.py` |
+| Component        | Files                                                      |
+| ---------------- | ---------------------------------------------------------- |
+| Integration Core | `__init__.py`, `manifest.json`, `const.py`                 |
+| Configuration    | `config_flow.py`, `strings.json`, `translations/en.json`   |
+| Coordinator      | `coordinator.py`, `store.py`, `schedule.py`                |
+| Control Logic    | `pid.py`                                                   |
+| Entities         | `climate.py`, `sensor.py`, `number.py`, `binary_sensor.py` |
 
 ---
 
