@@ -1,6 +1,6 @@
 {
-  "domain": "ems_zone_master",
-  "name": "EMS Zone Master",
+  "domain": "heating_pid",
+  "name": "Heating PID (dry construction underfloor heating)",
   "version": "0.1.0",
   "codeowners": [],
   "config_flow": true,
