@@ -295,7 +295,7 @@ class EmsZoneMasterConfigFlow(ConfigFlow, domain=DOMAIN):
         Returns:
             Options flow handler instance
         """
-        return EmsZoneMasterOptionsFlow(config_entry)
+        return EmsZoneMasterOptionsFlow()
 
 
 class EmsZoneMasterOptionsFlow(OptionsFlow):
@@ -305,11 +305,6 @@ class EmsZoneMasterOptionsFlow(OptionsFlow):
     - Global temperature settings
     - Adding new zones
     """
-
-    def __init__(self, config_entry: ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
-        self._new_zone: dict[str, Any] | None = None
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
