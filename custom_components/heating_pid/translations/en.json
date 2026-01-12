@@ -80,7 +80,7 @@
   "options": {
     "step": {
       "init": {
-        "title": "EMS Zone Master Options",
+        "title": "Heating PID Options",
         "description": "Adjust global settings.",
         "data": {
           "min_egress": "Minimum Flow Temperature",

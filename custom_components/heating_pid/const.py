@@ -1,9 +1,9 @@
-"""Constants for the EMS Zone Master integration."""
+"""Constants for the Heating PID integration."""
 
 from typing import Final
 
 # Domain
-DOMAIN: Final = "ems_zone_master"
+DOMAIN: Final = "heating_pid"
 
 # Platforms
 PLATFORMS: Final = ["climate", "sensor", "number", "binary_sensor"]
@@ -67,7 +67,7 @@ VALVE_MAINTENANCE_DURATION: Final = 30  # Seconds to cycle valve during maintena
 VALVE_MAINTENANCE_HOUR: Final = 14  # Hour of day to run maintenance (2 PM)
 
 # Storage
-STORAGE_KEY: Final = "ems_zone_master"
+STORAGE_KEY: Final = "heating_pid"
 STORAGE_VERSION: Final = 1
 
 # Services
