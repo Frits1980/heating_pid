@@ -1,6 +1,7 @@
 {
   "domain": "ems_zone_master",
   "name": "EMS Zone Master",
+  "version": "0.1.0",
   "codeowners": [],
   "config_flow": true,
   "dependencies": [],
