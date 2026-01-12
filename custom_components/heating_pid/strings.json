@@ -3,88 +3,134 @@
     "step": {
       "user": {
         "title": "Heater Configuration",
-        "description": "Configure the EMS-ESP entities for boiler control.",
+        "description": "Connect to your boiler via EMS-ESP. [See CONFIG.md for details]({config_url})",
         "data": {
-          "heater_entity": "Flow Temperature Setpoint",
-          "flow_temp_entity": "Flow Temperature Sensor",
-          "return_temp_entity": "Return Temperature Sensor",
-          "outdoor_temp_entity": "Outdoor Temperature Sensor",
-          "solar_power_entity": "Solar Power Sensor (optional)"
+          "heater_entity": "Boiler Flow Setpoint",
+          "flow_temp_entity": "Flow Temperature",
+          "return_temp_entity": "Return Temperature",
+          "outdoor_temp_entity": "Outdoor Temperature",
+          "solar_power_entity": "Solar Power (optional)"
         },
         "data_description": {
-          "heater_entity": "Number entity to control boiler flow temperature setpoint",
-          "flow_temp_entity": "Sensor showing current boiler flow temperature",
-          "return_temp_entity": "Sensor showing current boiler return temperature",
-          "outdoor_temp_entity": "Sensor showing outdoor temperature for compensation",
-          "solar_power_entity": "Sensor showing current solar power generation (for limiting)"
+          "heater_entity": "The number entity that controls your boiler's target water temperature",
+          "flow_temp_entity": "Measures water temperature leaving the boiler",
+          "return_temp_entity": "Measures water temperature returning to the boiler",
+          "outdoor_temp_entity": "Used to adjust heating based on weather conditions",
+          "solar_power_entity": "Reduces heating when solar panels produce enough power"
         }
       },
       "global": {
-        "title": "Global Settings",
-        "description": "Configure temperature limits and efficiency settings.",
+        "title": "Temperature Limits",
+        "description": "Set the operating range for your heating system.",
         "data": {
-          "min_egress": "Minimum Flow Temperature",
-          "max_egress": "Maximum Flow Temperature",
-          "min_ignition_level": "Minimum Ignition Level",
-          "solar_threshold": "Solar Power Threshold",
-          "solar_drop": "Solar Temperature Drop"
+          "min_egress": "Lowest Water Temperature",
+          "max_egress": "Highest Water Temperature",
+          "min_ignition_level": "Minimum Demand to Start",
+          "solar_threshold": "Solar Power Limit",
+          "solar_drop": "Solar Temperature Reduction"
         },
         "data_description": {
-          "min_egress": "Lowest flow temperature when minimal heating is needed",
-          "max_egress": "Highest flow temperature for maximum demand",
-          "min_ignition_level": "Demand percentage below which heater stays off",
-          "solar_threshold": "Solar power level above which heating is reduced",
-          "solar_drop": "Temperature reduction when solar threshold is exceeded"
+          "min_egress": "Water temperature when heating demand is minimal (e.g., 25°C)",
+          "max_egress": "Water temperature at full heating demand (e.g., 55°C)",
+          "min_ignition_level": "Heating won't start until demand exceeds this percentage",
+          "solar_threshold": "Reduce heating when solar production exceeds this (Watts)",
+          "solar_drop": "How much to lower water temperature when solar limit is reached"
         }
       },
       "zones": {
-        "title": "Zone Configuration",
-        "description": "Configure heating zone {zone_count}.",
+        "title": "Add Heating Zone {zone_count}",
+        "description": "Configure a room or area with its own temperature control.",
         "data": {
-          "zone_name": "Zone Name",
-          "zone_temp_entity": "Temperature Sensor",
-          "zone_valve_entity": "Valve Control",
-          "zone_window_entity": "Window Sensor (optional)",
-          "zone_schedule_entity": "Schedule (optional)",
-          "zone_default_setpoint": "Default Setpoint",
-          "kp": "Kp (Proportional Gain)",
-          "ki": "Ki (Integral Gain)",
-          "kd": "Kd (Derivative Gain)",
-          "ke": "Ke (Outdoor Compensation)",
-          "add_another": "Add Another Zone"
+          "zone_name": "Room Name",
+          "zone_temp_entity": "Room Temperature",
+          "zone_valve_entity": "Zone Valve",
+          "zone_window_entity": "Draft/Window Sensor (optional)",
+          "zone_schedule_entity": "Heating Schedule (optional)",
+          "zone_default_setpoint": "Default Temperature",
+          "kp": "Speed (Kp)",
+          "ki": "Precision (Ki)",
+          "kd": "Stability (Kd)",
+          "ke": "Weather Adjustment (Ke)",
+          "add_another": "Add Another Room"
         },
         "data_description": {
-          "zone_name": "Unique name for this heating zone",
-          "zone_temp_entity": "Temperature sensor for this zone",
-          "zone_valve_entity": "Switch or climate entity controlling zone valve",
-          "zone_window_entity": "Binary sensor detecting open windows",
-          "zone_schedule_entity": "Schedule helper for automatic setpoints",
-          "zone_default_setpoint": "Default target temperature when no schedule active",
-          "kp": "How aggressively to respond to temperature error",
-          "ki": "How much to compensate for accumulated error",
-          "kd": "How much to dampen rapid temperature changes",
-          "ke": "How much to boost output when cold outside",
-          "add_another": "Check to add another zone after this one"
+          "zone_name": "Give this room a name (e.g., Living Room, Bedroom)",
+          "zone_temp_entity": "The thermometer measuring this room's temperature",
+          "zone_valve_entity": "The valve or thermostat that controls heating to this room",
+          "zone_window_entity": "Pauses heating when on/open (binary sensor or input boolean)",
+          "zone_schedule_entity": "Automatically adjust temperature based on time of day",
+          "zone_default_setpoint": "Target temperature when no schedule is active",
+          "kp": "Higher = faster response, but may overshoot (typical: 20-50)",
+          "ki": "Higher = more precise, but slower to settle (typical: 0.01-0.5)",
+          "kd": "Higher = smoother, less overshooting (typical: 50-150 for underfloor)",
+          "ke": "Boost heating when it's cold outside (typical: 0.01-0.03)",
+          "add_another": "Enable to add more rooms after this one"
         }
       }
     },
     "error": {
-      "invalid_temp_range": "Maximum temperature must be greater than minimum",
-      "entity_not_found": "Entity not found",
-      "zone_name_exists": "Zone name already exists"
+      "invalid_temp_range": "Maximum temperature must be higher than minimum",
+      "entity_not_found": "Could not find this entity",
+      "zone_name_exists": "A room with this name already exists"
     },
     "abort": {
-      "already_configured": "Integration is already configured"
+      "already_configured": "This integration is already set up"
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Heating PID Options",
-        "description": "Adjust global settings.",
+        "title": "Heating PID Settings",
+        "description": "Choose what you want to configure.",
+        "menu_options": {
+          "global_settings": "Adjust global settings",
+          "add_zone": "Add a new heating zone"
+        }
+      },
+      "global_settings": {
+        "title": "Global Settings",
+        "description": "Adjust temperature limits and efficiency settings.",
         "data": {
-          "min_egress": "Minimum Flow Temperature",
-          "max_egress": "Maximum Flow Temperature"
+          "min_egress": "Lowest Water Temperature",
+          "max_egress": "Highest Water Temperature",
+          "min_ignition_level": "Minimum Demand to Start",
+          "solar_threshold": "Solar Power Limit",
+          "solar_drop": "Solar Temperature Reduction"
+        },
+        "data_description": {
+          "min_egress": "Water temperature when heating demand is minimal",
+          "max_egress": "Water temperature at full heating demand",
+          "min_ignition_level": "Heating won't start until demand exceeds this",
+          "solar_threshold": "Reduce heating when solar exceeds this",
+          "solar_drop": "How much to lower temperature when solar limit is reached"
+        }
+      },
+      "add_zone": {
+        "title": "Add New Zone",
+        "description": "Add another room to your heating system.",
+        "data": {
+          "zone_name": "Room Name",
+          "zone_temp_entity": "Room Temperature",
+          "zone_valve_entity": "Zone Valve",
+          "zone_window_entity": "Draft/Window Sensor (optional)",
+          "zone_schedule_entity": "Heating Schedule (optional)",
+          "zone_default_setpoint": "Default Temperature",
+          "kp": "Speed (Kp)",
+          "ki": "Precision (Ki)",
+          "kd": "Stability (Kd)",
+          "ke": "Weather Adjustment (Ke)"
+        },
+        "data_description": {
+          "zone_name": "Give this room a name (e.g., Living Room)",
+          "zone_temp_entity": "The thermometer measuring this room's temperature",
+          "zone_valve_entity": "The valve that controls heating to this room",
+          "zone_window_entity": "Pauses heating when on/open",
+          "zone_schedule_entity": "Automatically adjust temperature by time",
+          "zone_default_setpoint": "Target temperature when no schedule is active",
+          "kp": "Higher = faster response (typical: 20-50)",
+          "ki": "Higher = more precise (typical: 0.01-0.5)",
+          "kd": "Higher = smoother (typical: 50-150 for underfloor)",
+          "ke": "Boost when cold outside (typical: 0.01-0.03)"
         }
       }
     }
