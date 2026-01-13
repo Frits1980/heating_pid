@@ -61,10 +61,10 @@ async def async_setup_entry(
 
     for zone_name in coordinator.zones:
         entities.extend([
-            PIDGainNumber(coordinator, zone_name, "kp", DEFAULT_KP, 0, 100, 1),
-            PIDGainNumber(coordinator, zone_name, "ki", DEFAULT_KI, 0, 5, 0.1),
-            PIDGainNumber(coordinator, zone_name, "kd", DEFAULT_KD, 0, 50, 1),
-            PIDGainNumber(coordinator, zone_name, "ke", DEFAULT_KE, 0, 0.1, 0.005),
+            PIDGainNumber(coordinator, zone_name, "kp", DEFAULT_KP, 0, 100, 0.5),
+            PIDGainNumber(coordinator, zone_name, "ki", DEFAULT_KI, 0, 2, 0.01),
+            PIDGainNumber(coordinator, zone_name, "kd", DEFAULT_KD, 0, 500, 5),
+            PIDGainNumber(coordinator, zone_name, "ke", DEFAULT_KE, 0, 0.2, 0.005),
         ])
 
     async_add_entities(entities)

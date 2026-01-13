@@ -60,9 +60,9 @@
           "zone_window_entity": "Pauses heating when on/open (binary sensor or input boolean)",
           "zone_schedule_entity": "Automatically adjust temperature based on time of day",
           "zone_default_setpoint": "Target temperature when no schedule is active",
-          "kp": "Higher = faster response, but may overshoot (typical: 20-50)",
-          "ki": "Higher = more precise, but slower to settle (typical: 0.01-0.5)",
-          "kd": "Higher = smoother, less overshooting (typical: 50-150 for underfloor)",
+          "kp": "Higher = faster response, may overshoot (UFH: 5-15, radiators: 20-50)",
+          "ki": "Higher = more precise, slower to settle (UFH: 0.01-0.1, radiators: 0.1-0.5)",
+          "kd": "Higher = smoother, less overshooting (UFH: 100-300, radiators: 10-50)",
           "ke": "Boost heating when it's cold outside (typical: 0.01-0.03)",
           "add_another": "Enable to add more rooms after this one"
         }
@@ -134,9 +134,9 @@
           "zone_window_entity": "Pauses heating when on/open",
           "zone_schedule_entity": "Automatically adjust temperature by time",
           "zone_default_setpoint": "Target temperature when no schedule is active",
-          "kp": "Higher = faster response (typical: 20-50)",
-          "ki": "Higher = more precise (typical: 0.01-0.5)",
-          "kd": "Higher = smoother (typical: 50-150 for underfloor)",
+          "kp": "Higher = faster response (UFH: 5-15, radiators: 20-50)",
+          "ki": "Higher = more precise (UFH: 0.01-0.1, radiators: 0.1-0.5)",
+          "kd": "Higher = smoother (UFH: 100-300, radiators: 10-50)",
           "ke": "Boost when cold outside (typical: 0.01-0.03)"
         }
       },
@@ -180,9 +180,9 @@
           "zone_window_entity": "Pauses heating when on/open",
           "zone_schedule_entity": "Automatically adjust temperature by time",
           "zone_default_setpoint": "Target temperature when no schedule is active",
-          "kp": "Higher = faster response (typical: 20-50)",
-          "ki": "Higher = more precise (typical: 0.01-0.5)",
-          "kd": "Higher = smoother (typical: 50-150 for underfloor)",
+          "kp": "Higher = faster response (UFH: 5-15, radiators: 20-50)",
+          "ki": "Higher = more precise (UFH: 0.01-0.1, radiators: 0.1-0.5)",
+          "kd": "Higher = smoother (UFH: 100-300, radiators: 10-50)",
           "ke": "Boost when cold outside (typical: 0.01-0.03)"
         }
       }

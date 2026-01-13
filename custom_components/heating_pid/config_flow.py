@@ -265,16 +265,16 @@ class EmsZoneMasterConfigFlow(ConfigFlow, domain=DOMAIN):
                     )
                 ),
                 vol.Required(CONF_KP, default=DEFAULT_KP): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=0, max=100, step=1)
+                    selector.NumberSelectorConfig(min=0, max=100, step=0.5)
                 ),
                 vol.Required(CONF_KI, default=DEFAULT_KI): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=0, max=5, step=0.1)
+                    selector.NumberSelectorConfig(min=0, max=2, step=0.01)
                 ),
                 vol.Required(CONF_KD, default=DEFAULT_KD): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=0, max=200, step=1)
+                    selector.NumberSelectorConfig(min=0, max=500, step=5)
                 ),
                 vol.Required(CONF_KE, default=DEFAULT_KE): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=0, max=0.1, step=0.005)
+                    selector.NumberSelectorConfig(min=0, max=0.2, step=0.005)
                 ),
                 vol.Optional("add_another", default=False): selector.BooleanSelector(),
             }
@@ -441,16 +441,16 @@ class EmsZoneMasterOptionsFlow(OptionsFlow):
                     )
                 ),
                 vol.Required(CONF_KP, default=DEFAULT_KP): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=0, max=100, step=1)
+                    selector.NumberSelectorConfig(min=0, max=100, step=0.5)
                 ),
                 vol.Required(CONF_KI, default=DEFAULT_KI): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=0, max=5, step=0.1)
+                    selector.NumberSelectorConfig(min=0, max=2, step=0.01)
                 ),
                 vol.Required(CONF_KD, default=DEFAULT_KD): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=0, max=200, step=1)
+                    selector.NumberSelectorConfig(min=0, max=500, step=5)
                 ),
                 vol.Required(CONF_KE, default=DEFAULT_KE): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=0, max=0.1, step=0.005)
+                    selector.NumberSelectorConfig(min=0, max=0.2, step=0.005)
                 ),
             }
         )
@@ -634,22 +634,22 @@ class EmsZoneMasterOptionsFlow(OptionsFlow):
                 vol.Required(
                     CONF_KP, default=current_zone.get(CONF_KP, DEFAULT_KP)
                 ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=0, max=100, step=1)
+                    selector.NumberSelectorConfig(min=0, max=100, step=0.5)
                 ),
                 vol.Required(
                     CONF_KI, default=current_zone.get(CONF_KI, DEFAULT_KI)
                 ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=0, max=5, step=0.1)
+                    selector.NumberSelectorConfig(min=0, max=2, step=0.01)
                 ),
                 vol.Required(
                     CONF_KD, default=current_zone.get(CONF_KD, DEFAULT_KD)
                 ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=0, max=200, step=1)
+                    selector.NumberSelectorConfig(min=0, max=500, step=5)
                 ),
                 vol.Required(
                     CONF_KE, default=current_zone.get(CONF_KE, DEFAULT_KE)
                 ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=0, max=0.1, step=0.005)
+                    selector.NumberSelectorConfig(min=0, max=0.2, step=0.005)
                 ),
             }
         )
