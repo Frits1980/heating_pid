@@ -568,6 +568,20 @@ class EmsZoneMasterOptionsFlow(OptionsFlow):
             if user_input[CONF_ZONE_NAME] in existing_names:
                 errors["base"] = "zone_name_exists"
             else:
+                # If zone name changed, remove old device first to avoid orphaned entities
+                old_zone_name = self._selected_zone
+                new_zone_name = user_input[CONF_ZONE_NAME]
+
+                if old_zone_name != new_zone_name:
+                    # Remove old device from registry (cascades to entities)
+                    from homeassistant.helpers import device_registry as dr
+
+                    device_registry = dr.async_get(self.hass)
+                    old_device_id = (DOMAIN, f"{self.config_entry.entry_id}_{old_zone_name}")
+                    old_device = device_registry.async_get_device(identifiers={old_device_id})
+                    if old_device:
+                        device_registry.async_remove_device(old_device.id)
+
                 # Update zone in config
                 new_zones = [
                     user_input if z[CONF_ZONE_NAME] == self._selected_zone else z

@@ -777,10 +777,13 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._max_demand = 0.0
 
         # Check cooldown efficiency (delta-T too low = inefficient operation)
+        # Only check when boiler is actually running (flow temp above min_egress)
         if self._current_flow_temp is not None and self._current_return_temp is not None:
             delta_t = self._current_flow_temp - self._current_return_temp
-            if delta_t < MIN_EFFICIENT_DELTA_T and self._max_demand > 0:
-                # Delta-T too low, enter cooldown mode
+            boiler_is_running = self._current_flow_temp >= self._min_egress
+
+            if boiler_is_running and delta_t < MIN_EFFICIENT_DELTA_T and self._max_demand > 0:
+                # Delta-T too low while boiler is running, enter cooldown mode
                 if not self._cooldown_active:
                     _LOGGER.info(
                         "Entering cooldown mode: delta-T=%.1f°C < %.1f°C threshold",
