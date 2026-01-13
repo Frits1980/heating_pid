@@ -201,6 +201,7 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for name, zone in self.zones.items():
             self.store.set_pid_integral(name, zone.pid.integral)
             self.store.set_warmup_factor(name, zone.warmup_factor)
+            self.store.set_manual_setpoint(name, zone.manual_setpoint)
 
         await self.store.async_save()
         _LOGGER.debug("Persisted state for %d zones", len(self.zones))
@@ -255,6 +256,17 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if stored_warmup is not None:
                 zone.warmup_factor = stored_warmup
 
+            # Restore manual setpoint from store
+            stored_manual = self.store.get_manual_setpoint(name)
+            if stored_manual is not None:
+                zone.manual_setpoint = stored_manual
+                zone.setpoint = stored_manual
+                _LOGGER.debug(
+                    "Restored manual setpoint for zone %s: %.1f°C",
+                    name,
+                    stored_manual,
+                )
+
             # Create schedule reader if schedule entity is configured
             schedule_entity = zone_config.get(CONF_ZONE_SCHEDULE_ENTITY)
             if schedule_entity:
@@ -264,7 +276,6 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     hass=self.hass,
                     entity_id=schedule_entity,
                     default_setpoint=zone.default_setpoint - 3.0,  # Setback temp
-                    active_setpoint=zone.default_setpoint,
                 )
                 _LOGGER.debug(
                     "Created schedule reader for zone %s: %s",
@@ -420,7 +431,10 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 continue
 
             # Calculate when this zone needs to start heating (with adaptive start)
-            target_temp = zone.schedule_reader.active_setpoint
+            target_temp = zone.schedule_reader.get_next_block_setpoint(now)
+            if target_temp is None:
+                continue
+
             temp_delta = target_temp - zone.current_temp
 
             if temp_delta <= 0:
@@ -600,9 +614,10 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if not zone.schedule_reader.is_schedule_active(now):
                     # Currently in setback period, check if we need to preheat
                     time_to_active = zone.schedule_reader.get_time_to_next_active(now)
-                    if time_to_active is not None:
-                        # Calculate required preheat time
-                        target_temp = zone.schedule_reader.active_setpoint
+                    # Get the target temp from the next schedule block
+                    target_temp = zone.schedule_reader.get_next_block_setpoint(now)
+
+                    if time_to_active is not None and target_temp is not None:
                         temp_delta = target_temp - zone.current_temp
 
                         if zone.sync_forced:

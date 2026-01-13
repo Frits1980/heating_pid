@@ -51,6 +51,7 @@ class EmsZoneMasterStore:
         self._data: dict[str, Any] = {
             "warmup_factors": {},
             "pid_integrals": {},
+            "manual_setpoints": {},
         }
 
     async def async_load(self) -> None:
@@ -124,6 +125,33 @@ class EmsZoneMasterStore:
             self._data["pid_integrals"] = {}
         self._data["pid_integrals"][zone_name] = integral
 
+    def get_manual_setpoint(self, zone_name: str) -> float | None:
+        """Get the stored manual setpoint for a zone.
+
+        Args:
+            zone_name: Name of the zone
+
+        Returns:
+            Manual setpoint temperature, or None if not stored/cleared
+        """
+        return self._data.get("manual_setpoints", {}).get(zone_name)
+
+    def set_manual_setpoint(self, zone_name: str, setpoint: float | None) -> None:
+        """Store or clear a manual setpoint for a zone.
+
+        Args:
+            zone_name: Name of the zone
+            setpoint: Manual setpoint temperature, or None to clear
+        """
+        if "manual_setpoints" not in self._data:
+            self._data["manual_setpoints"] = {}
+        if setpoint is None:
+            self._data["manual_setpoints"].pop(zone_name, None)
+            _LOGGER.debug("Cleared manual setpoint for %s", zone_name)
+        else:
+            self._data["manual_setpoints"][zone_name] = setpoint
+            _LOGGER.debug("Stored manual setpoint for %s: %.1f°C", zone_name, setpoint)
+
     def clear_zone(self, zone_name: str) -> None:
         """Clear all stored data for a zone.
 
@@ -136,6 +164,8 @@ class EmsZoneMasterStore:
             self._data["warmup_factors"].pop(zone_name, None)
         if "pid_integrals" in self._data:
             self._data["pid_integrals"].pop(zone_name, None)
+        if "manual_setpoints" in self._data:
+            self._data["manual_setpoints"].pop(zone_name, None)
         _LOGGER.debug("Cleared stored data for zone: %s", zone_name)
 
     def get_all_warmup_factors(self) -> dict[str, float]:

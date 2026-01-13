@@ -1,8 +1,8 @@
 """Schedule reader for Home Assistant schedule helper entities.
 
 Reads schedule helper entities to determine target setpoints throughout
-the day. Schedule helpers in HA store time blocks with on/off states;
-this module extends that to support temperature setpoints.
+the day. Uses the schedule helper's data field to specify temperature
+setpoints for each time block.
 
 The integration uses schedule entities to:
 1. Determine when to start heating (with adaptive start)
@@ -11,10 +11,13 @@ The integration uses schedule entities to:
 
 Schedule helpers store time blocks per day of week in the format:
 {
-    "monday": [{"from": "07:00:00", "to": "09:00:00"}, ...],
+    "monday": [{"from": "07:00:00", "to": "09:00:00", "data": {"temp": 21}}, ...],
     "tuesday": [...],
     ...
 }
+
+Each time block can specify a "temp" key in its data field. If not specified,
+the default_setpoint is used during that block.
 """
 
 from __future__ import annotations
@@ -56,35 +59,37 @@ class ScheduleReader:
     - Calculate time until next event
 
     Schedule helpers store time blocks as a list of time ranges per day.
-    This reader treats "on" blocks as heating periods with the active_setpoint,
-    and gaps between blocks use the default_setpoint.
+    Each block can have a "data" field with a "temp" key specifying the
+    setpoint for that period. Gaps between blocks use the default_setpoint.
+
+    Example schedule block with data:
+        {"from": "07:00:00", "to": "09:00:00", "data": {"temp": 21}}
 
     Attributes:
         hass: Home Assistant instance
         entity_id: Schedule helper entity ID
-        default_setpoint: Setpoint when no schedule is active
-        active_setpoint: Setpoint during scheduled "on" periods
+        default_setpoint: Setpoint when no schedule block is active
     """
+
+    # Key used in schedule data for temperature
+    DATA_TEMP_KEY = "temp"
 
     def __init__(
         self,
         hass: HomeAssistant,
         entity_id: str,
         default_setpoint: float = 18.0,
-        active_setpoint: float = 21.0,
     ) -> None:
         """Initialize the schedule reader.
 
         Args:
             hass: Home Assistant instance
             entity_id: Entity ID of the schedule helper
-            default_setpoint: Temperature when schedule is off (°C)
-            active_setpoint: Temperature when schedule is on (°C)
+            default_setpoint: Temperature when no schedule block is active (°C)
         """
         self.hass = hass
         self.entity_id = entity_id
         self.default_setpoint = default_setpoint
-        self.active_setpoint = active_setpoint
 
     def get_current_setpoint(self, now: datetime | None = None) -> float:
         """Get the setpoint for the current time.
@@ -102,10 +107,64 @@ class ScheduleReader:
         if state is None:
             return self.default_setpoint
 
-        # Check if current time falls within an active block
-        if self._is_time_in_schedule(now, state):
-            return self.active_setpoint
+        # Check if current time falls within an active block and get its temp
+        block_temp = self._get_block_temperature(now, state)
+        if block_temp is not None:
+            return block_temp
         return self.default_setpoint
+
+    def _get_block_temperature(
+        self, now: datetime, schedule_state: dict[str, Any]
+    ) -> float | None:
+        """Get the temperature from the active schedule block's data field.
+
+        Args:
+            now: Datetime to check
+            schedule_state: Schedule entity attributes
+
+        Returns:
+            Temperature from block's data["temp"], or None if not in a block
+        """
+        day_name = WEEKDAY_NAMES[now.weekday()]
+        day_schedule = schedule_state.get(day_name, [])
+
+        if not day_schedule:
+            return None
+
+        check_time = now.time()
+
+        for block in day_schedule:
+            from_time = self._parse_time(block.get("from", "00:00:00"))
+            to_time = self._parse_time(block.get("to", "00:00:00"))
+
+            if from_time is None or to_time is None:
+                continue
+
+            in_block = False
+
+            # Handle same-day blocks
+            if from_time <= check_time < to_time:
+                in_block = True
+            # Handle overnight blocks (e.g., 22:00 to 06:00)
+            elif from_time > to_time:
+                if check_time >= from_time or check_time < to_time:
+                    in_block = True
+
+            if in_block:
+                # Get temperature from block's data field
+                data = block.get("data", {})
+                if isinstance(data, dict) and self.DATA_TEMP_KEY in data:
+                    try:
+                        return float(data[self.DATA_TEMP_KEY])
+                    except (ValueError, TypeError):
+                        _LOGGER.warning(
+                            "Invalid temp value in schedule data: %s",
+                            data.get(self.DATA_TEMP_KEY),
+                        )
+                # Block is active but no temp specified, use default
+                return self.default_setpoint
+
+        return None
 
     def get_next_event(self, now: datetime | None = None) -> ScheduleEvent | None:
         """Get the next scheduled event after the given time.
@@ -215,31 +274,7 @@ class ScheduleReader:
         Returns:
             True if time is in an active block
         """
-        day_name = WEEKDAY_NAMES[now.weekday()]
-        day_schedule = schedule_state.get(day_name, [])
-
-        if not day_schedule:
-            return False
-
-        check_time = now.time()
-
-        for block in day_schedule:
-            from_time = self._parse_time(block.get("from", "00:00:00"))
-            to_time = self._parse_time(block.get("to", "00:00:00"))
-
-            if from_time is None or to_time is None:
-                continue
-
-            # Handle same-day blocks
-            if from_time <= check_time < to_time:
-                return True
-
-            # Handle overnight blocks (e.g., 22:00 to 06:00)
-            if from_time > to_time:
-                if check_time >= from_time or check_time < to_time:
-                    return True
-
-        return False
+        return self._get_block_temperature(now, schedule_state) is not None
 
     def _parse_schedule_events(
         self, date: datetime, schedule_state: dict[str, Any]
@@ -268,10 +303,19 @@ class ScheduleReader:
             if from_time is None or to_time is None:
                 continue
 
+            # Get temperature from block's data field
+            data = block.get("data", {})
+            block_temp = self.default_setpoint
+            if isinstance(data, dict) and self.DATA_TEMP_KEY in data:
+                try:
+                    block_temp = float(data[self.DATA_TEMP_KEY])
+                except (ValueError, TypeError):
+                    pass
+
             # Start of active period
             events.append(ScheduleEvent(
                 time=from_time,
-                setpoint=self.active_setpoint,
+                setpoint=block_temp,
                 is_active=True,
             ))
 
@@ -317,6 +361,29 @@ class ScheduleReader:
             now: Current datetime, or None to use current time
 
         Returns:
-            True if currently in a scheduled "on" period
+            True if currently in a scheduled block (not in default/off period)
         """
-        return self.get_current_setpoint(now) == self.active_setpoint
+        if now is None:
+            now = datetime.now()
+
+        state = self._get_schedule_state()
+        if state is None:
+            return False
+
+        return self._get_block_temperature(now, state) is not None
+
+    def get_next_block_setpoint(self, now: datetime | None = None) -> float | None:
+        """Get the setpoint of the next scheduled block.
+
+        Used for adaptive start to know what temperature to preheat to.
+
+        Args:
+            now: Current datetime, or None to use current time
+
+        Returns:
+            Temperature of next active block, or None if no upcoming block
+        """
+        next_event = self.get_next_event(now)
+        if next_event is not None and next_event.is_active:
+            return next_event.setpoint
+        return None
