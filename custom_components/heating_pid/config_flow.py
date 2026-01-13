@@ -304,18 +304,21 @@ class EmsZoneMasterOptionsFlow(OptionsFlow):
     Allows modification of:
     - Global temperature settings
     - Adding new zones
+    - Managing existing zones (edit/delete)
     """
+
+    _selected_zone: str | None = None
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Handle options menu.
 
-        Shows options to adjust global settings or add a new zone.
+        Shows options to adjust global settings, add, or manage zones.
         """
         return self.async_show_menu(
             step_id="init",
-            menu_options=["global_settings", "add_zone"],
+            menu_options=["global_settings", "add_zone", "manage_zones"],
         )
 
     async def async_step_global_settings(
@@ -456,4 +459,190 @@ class EmsZoneMasterOptionsFlow(OptionsFlow):
             step_id="add_zone",
             data_schema=schema,
             errors=errors,
+        )
+
+    async def async_step_manage_zones(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle zone selection for management."""
+        errors: dict[str, str] = {}
+        zones = self.config_entry.data.get(CONF_ZONES, [])
+
+        if not zones:
+            errors["base"] = "no_zones"
+            return self.async_abort(reason="no_zones")
+
+        if user_input is not None:
+            self._selected_zone = user_input["selected_zone"]
+            return await self.async_step_zone_action()
+
+        zone_names = [z[CONF_ZONE_NAME] for z in zones]
+
+        schema = vol.Schema(
+            {
+                vol.Required("selected_zone"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=zone_names,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="manage_zones",
+            data_schema=schema,
+            errors=errors,
+        )
+
+    async def async_step_zone_action(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle zone action selection (edit/delete)."""
+        return self.async_show_menu(
+            step_id="zone_action",
+            menu_options=["edit_zone", "delete_zone"],
+            description_placeholders={"zone_name": self._selected_zone or ""},
+        )
+
+    async def async_step_delete_zone(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle zone deletion with confirmation."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            if user_input.get("confirm", False):
+                # Remove zone from config
+                zones = list(self.config_entry.data.get(CONF_ZONES, []))
+                zones = [z for z in zones if z[CONF_ZONE_NAME] != self._selected_zone]
+
+                new_data = {**self.config_entry.data, CONF_ZONES: zones}
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry, data=new_data
+                )
+
+                # Reload to remove entities
+                await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+
+                return self.async_create_entry(title="", data={})
+            else:
+                # User didn't confirm, go back to manage zones
+                return await self.async_step_manage_zones()
+
+        schema = vol.Schema(
+            {
+                vol.Required("confirm", default=False): selector.BooleanSelector(),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="delete_zone",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={"zone_name": self._selected_zone or ""},
+        )
+
+    async def async_step_edit_zone(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle zone editing."""
+        errors: dict[str, str] = {}
+
+        # Find the current zone data
+        zones = self.config_entry.data.get(CONF_ZONES, [])
+        current_zone = next(
+            (z for z in zones if z[CONF_ZONE_NAME] == self._selected_zone),
+            None,
+        )
+
+        if current_zone is None:
+            return self.async_abort(reason="zone_not_found")
+
+        if user_input is not None:
+            # Check for duplicate zone name (if changed)
+            existing_names = [
+                z[CONF_ZONE_NAME] for z in zones if z[CONF_ZONE_NAME] != self._selected_zone
+            ]
+
+            if user_input[CONF_ZONE_NAME] in existing_names:
+                errors["base"] = "zone_name_exists"
+            else:
+                # Update zone in config
+                new_zones = [
+                    user_input if z[CONF_ZONE_NAME] == self._selected_zone else z
+                    for z in zones
+                ]
+
+                new_data = {**self.config_entry.data, CONF_ZONES: new_zones}
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry, data=new_data
+                )
+
+                # Reload to apply changes
+                await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+
+                return self.async_create_entry(title="", data={})
+
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_ZONE_NAME, default=current_zone.get(CONF_ZONE_NAME, "")
+                ): selector.TextSelector(),
+                vol.Required(
+                    CONF_ZONE_TEMP_ENTITY, default=current_zone.get(CONF_ZONE_TEMP_ENTITY, "")
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Required(
+                    CONF_ZONE_VALVE_ENTITY, default=current_zone.get(CONF_ZONE_VALVE_ENTITY, "")
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain=["switch", "climate"])
+                ),
+                vol.Optional(
+                    CONF_ZONE_WINDOW_ENTITY, default=current_zone.get(CONF_ZONE_WINDOW_ENTITY, "")
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain=["binary_sensor", "input_boolean"])
+                ),
+                vol.Optional(
+                    CONF_ZONE_SCHEDULE_ENTITY, default=current_zone.get(CONF_ZONE_SCHEDULE_ENTITY, "")
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="schedule")
+                ),
+                vol.Required(
+                    CONF_ZONE_DEFAULT_SETPOINT,
+                    default=current_zone.get(CONF_ZONE_DEFAULT_SETPOINT, DEFAULT_SETPOINT),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=5, max=30, step=0.5, unit_of_measurement="°C"
+                    )
+                ),
+                vol.Required(
+                    CONF_KP, default=current_zone.get(CONF_KP, DEFAULT_KP)
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=0, max=100, step=1)
+                ),
+                vol.Required(
+                    CONF_KI, default=current_zone.get(CONF_KI, DEFAULT_KI)
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=0, max=5, step=0.1)
+                ),
+                vol.Required(
+                    CONF_KD, default=current_zone.get(CONF_KD, DEFAULT_KD)
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=0, max=200, step=1)
+                ),
+                vol.Required(
+                    CONF_KE, default=current_zone.get(CONF_KE, DEFAULT_KE)
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=0, max=0.1, step=0.005)
+                ),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="edit_zone",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={"zone_name": self._selected_zone or ""},
         )

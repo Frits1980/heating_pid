@@ -74,7 +74,9 @@
       "zone_name_exists": "A room with this name already exists"
     },
     "abort": {
-      "already_configured": "This integration is already set up"
+      "already_configured": "This integration is already set up",
+      "no_zones": "No zones configured yet. Add a zone first.",
+      "zone_not_found": "Zone not found"
     }
   },
   "options": {
@@ -84,7 +86,58 @@
         "description": "Choose what you want to configure.",
         "menu_options": {
           "global_settings": "Adjust global settings",
-          "add_zone": "Add a new heating zone"
+          "add_zone": "Add a new heating zone",
+          "manage_zones": "Manage existing zones"
+        }
+      },
+      "manage_zones": {
+        "title": "Manage Zones",
+        "description": "Select a zone to edit or delete.",
+        "data": {
+          "selected_zone": "Zone"
+        }
+      },
+      "zone_action": {
+        "title": "Zone: {zone_name}",
+        "description": "What would you like to do with this zone?",
+        "menu_options": {
+          "edit_zone": "Edit zone settings",
+          "delete_zone": "Delete this zone"
+        }
+      },
+      "delete_zone": {
+        "title": "Delete Zone",
+        "description": "Are you sure you want to delete '{zone_name}'? This will remove all settings and entities for this zone.",
+        "data": {
+          "confirm": "Yes, delete this zone"
+        }
+      },
+      "edit_zone": {
+        "title": "Edit Zone: {zone_name}",
+        "description": "Modify the settings for this zone.",
+        "data": {
+          "zone_name": "Room Name",
+          "zone_temp_entity": "Room Temperature",
+          "zone_valve_entity": "Zone Valve",
+          "zone_window_entity": "Draft/Window Sensor (optional)",
+          "zone_schedule_entity": "Heating Schedule (optional)",
+          "zone_default_setpoint": "Default Temperature",
+          "kp": "Speed (Kp)",
+          "ki": "Precision (Ki)",
+          "kd": "Stability (Kd)",
+          "ke": "Weather Adjustment (Ke)"
+        },
+        "data_description": {
+          "zone_name": "The name of this zone",
+          "zone_temp_entity": "The thermometer measuring this room's temperature",
+          "zone_valve_entity": "The valve that controls heating to this room",
+          "zone_window_entity": "Pauses heating when on/open",
+          "zone_schedule_entity": "Automatically adjust temperature by time",
+          "zone_default_setpoint": "Target temperature when no schedule is active",
+          "kp": "Higher = faster response (typical: 20-50)",
+          "ki": "Higher = more precise (typical: 0.01-0.5)",
+          "kd": "Higher = smoother (typical: 50-150 for underfloor)",
+          "ke": "Boost when cold outside (typical: 0.01-0.03)"
         }
       },
       "global_settings": {
