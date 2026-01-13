@@ -165,6 +165,7 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._target_flow_temp: float = self._min_egress
         self._max_demand: float = 0.0
         self._cooldown_active: bool = False
+        self._heater_was_active: bool = False  # Track if heater was actively commanded
         self._unsub_persistence: CALLBACK_TYPE | None = None
 
         # Initialize zones from config
@@ -792,13 +793,21 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._max_demand = 0.0
 
         # Check cooldown efficiency (delta-T too low = inefficient operation)
-        # Only check when boiler is actually running (flow temp above min_egress)
+        # Only check when:
+        # 1. We were actively commanding heat in the previous cycle
+        # 2. Flow temp is above min_egress (boiler responded)
+        # This prevents false cooldown triggers when starting up with warm pipes
         if self._current_flow_temp is not None and self._current_return_temp is not None:
             delta_t = self._current_flow_temp - self._current_return_temp
-            boiler_is_running = self._current_flow_temp >= self._min_egress
+            boiler_is_responding = self._current_flow_temp >= self._min_egress
 
-            if boiler_is_running and delta_t < MIN_EFFICIENT_DELTA_T and self._max_demand > 0:
-                # Delta-T too low while boiler is running, enter cooldown mode
+            if (
+                self._heater_was_active
+                and boiler_is_responding
+                and delta_t < MIN_EFFICIENT_DELTA_T
+                and self._max_demand > 0
+            ):
+                # Delta-T too low while actively heating, enter cooldown mode
                 if not self._cooldown_active:
                     _LOGGER.info(
                         "Entering cooldown mode: delta-T=%.1f°C < %.1f°C threshold",
@@ -851,6 +860,9 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # Apply to heater entity
         await self._set_heater_temperature(self._target_flow_temp)
+
+        # Track heater state for next cycle's cooldown check
+        self._heater_was_active = self._target_flow_temp > 0
 
         # Control zone valves based on demand
         await self._update_valve_states()
