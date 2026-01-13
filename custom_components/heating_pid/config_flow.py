@@ -614,12 +614,14 @@ class EmsZoneMasterOptionsFlow(OptionsFlow):
                     selector.EntitySelectorConfig(domain=["switch", "climate"])
                 ),
                 vol.Optional(
-                    CONF_ZONE_WINDOW_ENTITY, default=current_zone.get(CONF_ZONE_WINDOW_ENTITY, "")
+                    CONF_ZONE_WINDOW_ENTITY,
+                    description={"suggested_value": current_zone.get(CONF_ZONE_WINDOW_ENTITY) or None},
                 ): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain=["binary_sensor", "input_boolean"])
                 ),
                 vol.Optional(
-                    CONF_ZONE_SCHEDULE_ENTITY, default=current_zone.get(CONF_ZONE_SCHEDULE_ENTITY, "")
+                    CONF_ZONE_SCHEDULE_ENTITY,
+                    description={"suggested_value": current_zone.get(CONF_ZONE_SCHEDULE_ENTITY) or None},
                 ): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="schedule")
                 ),
