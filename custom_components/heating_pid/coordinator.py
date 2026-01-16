@@ -1131,6 +1131,15 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return self._cooldown_active
 
     @property
+    def solar_limited(self) -> bool:
+        """Return whether solar limiting is currently active."""
+        return (
+            self._solar_power is not None
+            and self._solar_power > self._solar_threshold
+            and self._max_demand > 0
+        )
+
+    @property
     def device_info(self) -> DeviceInfo:
         """Return device info for the main EMS Zone Master device."""
         from homeassistant.helpers.device_registry import DeviceInfo

@@ -173,7 +173,9 @@ class MasterStatusSensor(CoordinatorEntity["EmsZoneMasterCoordinator"], SensorEn
         if self.coordinator.max_demand <= 0:
             return "idle"
 
-        # TODO: Phase 5 - Add solar_limited state detection
+        if self.coordinator.solar_limited:
+            return "solar_limited"
+
         return "heating"
 
     @property
@@ -183,6 +185,7 @@ class MasterStatusSensor(CoordinatorEntity["EmsZoneMasterCoordinator"], SensorEn
             "max_demand": round(self.coordinator.max_demand, 1),
             "target_flow_temp": round(self.coordinator.target_flow_temp, 1),
             "cooldown_active": self.coordinator.cooldown_active,
+            "solar_limited": self.coordinator.solar_limited,
         }
 
     @callback
