@@ -2,6 +2,8 @@
 
 from typing import Final
 
+from homeassistant.const import Platform
+
 # Version - keep in sync with manifest.json
 VERSION: Final = "0.4.3"
 
@@ -9,7 +11,7 @@ VERSION: Final = "0.4.3"
 DOMAIN: Final = "heating_pid"
 
 # Platforms
-PLATFORMS: Final = ["climate", "sensor", "number", "binary_sensor"]
+PLATFORMS: Final = [Platform.CLIMATE, Platform.SENSOR, Platform.NUMBER, Platform.BINARY_SENSOR]
 
 # Configuration keys - Heater
 CONF_HEATER_ENTITY: Final = "heater_entity"
