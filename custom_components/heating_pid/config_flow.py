@@ -35,6 +35,8 @@ from .const import (
     CONF_MIN_IGNITION_LEVEL,
     CONF_OUTDOOR_REFERENCE_TEMP,
     CONF_OUTDOOR_TEMP_ENTITY,
+    CONF_QUIET_MODE_MAX_FLOW,
+    CONF_QUIET_MODE_RAMP_MINUTES,
     CONF_RETURN_TEMP_ENTITY,
     CONF_SOLAR_POWER_ENTITY,
     CONF_SOLAR_THRESHOLD,
@@ -56,6 +58,8 @@ from .const import (
     DEFAULT_MIN_EGRESS,
     DEFAULT_MIN_IGNITION_LEVEL,
     DEFAULT_OUTDOOR_REFERENCE_TEMP,
+    DEFAULT_QUIET_MODE_MAX_FLOW,
+    DEFAULT_QUIET_MODE_RAMP_MINUTES,
     DEFAULT_SETPOINT,
     DEFAULT_SOLAR_THRESHOLD,
     DEFAULT_VALVE_MIN_OFF_TIME,
@@ -324,6 +328,20 @@ class EmsZoneMasterConfigFlow(ConfigFlow, domain=DOMAIN):
                         min=0, max=30, step=1, unit_of_measurement="min"
                     )
                 ),
+                vol.Optional(
+                    CONF_QUIET_MODE_MAX_FLOW, default=DEFAULT_QUIET_MODE_MAX_FLOW
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=60, step=1, unit_of_measurement="°C"
+                    )
+                ),
+                vol.Optional(
+                    CONF_QUIET_MODE_RAMP_MINUTES, default=DEFAULT_QUIET_MODE_RAMP_MINUTES
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=10, max=180, step=5, unit_of_measurement="min"
+                    )
+                ),
             }
         )
 
@@ -581,6 +599,22 @@ class EmsZoneMasterOptionsFlow(OptionsFlow):
                 ): selector.NumberSelector(
                     selector.NumberSelectorConfig(
                         min=0, max=30, step=1, unit_of_measurement="min"
+                    )
+                ),
+                vol.Optional(
+                    CONF_QUIET_MODE_MAX_FLOW,
+                    default=self.config_entry.data.get(CONF_QUIET_MODE_MAX_FLOW, DEFAULT_QUIET_MODE_MAX_FLOW),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=60, step=1, unit_of_measurement="°C"
+                    )
+                ),
+                vol.Optional(
+                    CONF_QUIET_MODE_RAMP_MINUTES,
+                    default=self.config_entry.data.get(CONF_QUIET_MODE_RAMP_MINUTES, DEFAULT_QUIET_MODE_RAMP_MINUTES),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=10, max=180, step=5, unit_of_measurement="min"
                     )
                 ),
             }

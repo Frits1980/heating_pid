@@ -32,6 +32,8 @@ from .const import (
     CONF_MIN_IGNITION_LEVEL,
     CONF_OUTDOOR_REFERENCE_TEMP,
     CONF_OUTDOOR_TEMP_ENTITY,
+    CONF_QUIET_MODE_MAX_FLOW,
+    CONF_QUIET_MODE_RAMP_MINUTES,
     CONF_RETURN_TEMP_ENTITY,
     CONF_SOLAR_DROP,
     CONF_SOLAR_POWER_ENTITY,
@@ -42,6 +44,8 @@ from .const import (
     CONF_ZONES,
     COORDINATOR_UPDATE_INTERVAL,
     DEFAULT_OUTDOOR_REFERENCE_TEMP,
+    DEFAULT_QUIET_MODE_MAX_FLOW,
+    DEFAULT_QUIET_MODE_RAMP_MINUTES,
     DEFAULT_VALVE_MIN_OFF_TIME,
     DEFAULT_VALVE_MIN_ON_TIME,
     DOMAIN,
@@ -181,6 +185,12 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._valve_min_off_time: int = entry.data.get(
             CONF_VALVE_MIN_OFF_TIME, DEFAULT_VALVE_MIN_OFF_TIME
         )
+        self._quiet_mode_max_flow: float = entry.data.get(
+            CONF_QUIET_MODE_MAX_FLOW, DEFAULT_QUIET_MODE_MAX_FLOW
+        )
+        self._quiet_mode_ramp_minutes: int = entry.data.get(
+            CONF_QUIET_MODE_RAMP_MINUTES, DEFAULT_QUIET_MODE_RAMP_MINUTES
+        )
 
         # Runtime state
         self._current_flow_temp: float | None = None
@@ -192,6 +202,11 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._cooldown_active: bool = False
         self._heater_was_active: bool = False  # Track if heater was actively commanded
         self._unsub_persistence: CALLBACK_TYPE | None = None
+
+        # Quiet mode state
+        self._quiet_mode_active: bool = False
+        self._first_block_start_time: datetime | None = None
+        self._last_quiet_mode_check_date: datetime | None = None
 
         # Initialize zones from config
         self._init_zones()
@@ -335,6 +350,10 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             # Phase 4: Update PID controllers and calculate demand
             self._update_zone_demands()
+
+            # Phase 4.5: Update quiet mode state
+            now = dt_util.now()
+            await self._update_quiet_mode_state(now)
 
             # Phase 5: Calculate target flow temperature and control heater
             await self._update_heater_control()
@@ -860,20 +879,24 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._cooldown_active = False
 
         # Calculate target flow temperature from demand curve
-        # Formula: target = min + (demand / 100) × (max - min)
+        # Formula: target = min + (demand / 100) × (effective_max - min)
+        # effective_max may be reduced during quiet mode ramp
         if self._max_demand < self._min_ignition_level or self._cooldown_active:
             # Below ignition threshold or in cooldown - turn off
             self._target_flow_temp = 0.0
         else:
+            now = dt_util.now()
+            effective_max = self._get_effective_max_flow(now)
             self._target_flow_temp = self._min_egress + (
                 self._max_demand / 100.0
-            ) * (self._max_egress - self._min_egress)
+            ) * (effective_max - self._min_egress)
 
         _LOGGER.debug(
-            "Heater control: demand=%.1f%%, target=%.1f°C, cooldown=%s",
+            "Heater control: demand=%.1f%%, target=%.1f°C, cooldown=%s, quiet_mode=%s",
             self._max_demand,
             self._target_flow_temp,
             self._cooldown_active,
+            self._quiet_mode_active,
         )
 
         # Apply to heater entity
@@ -1118,6 +1141,89 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             and self._solar_power > self._solar_threshold
             and self._max_demand > 0
         )
+
+    @property
+    def quiet_mode_active(self) -> bool:
+        """Return whether quiet mode is currently active."""
+        return self._quiet_mode_active
+
+    async def _update_quiet_mode_state(self, now: datetime) -> None:
+        """Update quiet mode state based on current schedule blocks.
+
+        Quiet mode activates during the first schedule block of the day
+        and ramps up flow temperature over the configured time period.
+        """
+        # Skip if quiet mode is disabled
+        if self._quiet_mode_max_flow <= 0:
+            self._quiet_mode_active = False
+            self._first_block_start_time = None
+            return
+
+        # Reset quiet mode at midnight (new day)
+        if (
+            self._last_quiet_mode_check_date is not None
+            and now.date() > self._last_quiet_mode_check_date.date()
+        ):
+            self._quiet_mode_active = False
+            self._first_block_start_time = None
+
+        self._last_quiet_mode_check_date = now
+
+        # Check each zone's schedule for first block status
+        any_zone_in_first_block = False
+        for zone in self.zones.values():
+            if zone.schedule_reader is not None:
+                is_first_block = await zone.schedule_reader.is_first_block_of_day_async(now)
+                if is_first_block:
+                    any_zone_in_first_block = True
+                    # Get the start time if we don't have it
+                    if self._first_block_start_time is None:
+                        self._first_block_start_time = (
+                            await zone.schedule_reader.get_first_block_start_time_async(now)
+                        )
+                    break
+
+        if any_zone_in_first_block:
+            # Check if ramp period has completed
+            if self._first_block_start_time is not None:
+                minutes_since_start = (now - self._first_block_start_time).total_seconds() / 60
+                if minutes_since_start < self._quiet_mode_ramp_minutes:
+                    self._quiet_mode_active = True
+                else:
+                    # Ramp completed
+                    self._quiet_mode_active = False
+            else:
+                self._quiet_mode_active = True
+        else:
+            # Not in first block (second block started or no schedule active)
+            self._quiet_mode_active = False
+
+    def _get_effective_max_flow(self, now: datetime) -> float:
+        """Get the effective maximum flow temperature, accounting for quiet mode.
+
+        Returns:
+            Maximum flow temperature, possibly reduced for quiet mode ramp
+        """
+        if not self._quiet_mode_active or self._first_block_start_time is None:
+            return self._max_egress
+
+        # Calculate ramp progress (0.0 to 1.0)
+        minutes_since_start = (now - self._first_block_start_time).total_seconds() / 60
+        ramp_progress = min(1.0, minutes_since_start / self._quiet_mode_ramp_minutes)
+
+        # Clamp quiet mode max to at least min_egress
+        quiet_max = max(self._quiet_mode_max_flow, self._min_egress)
+
+        # Linear interpolation from quiet_max to max_egress
+        effective_max = quiet_max + ramp_progress * (self._max_egress - quiet_max)
+
+        _LOGGER.debug(
+            "Quiet mode: %.0f%% ramp progress, effective max flow: %.1f°C",
+            ramp_progress * 100,
+            effective_max,
+        )
+
+        return effective_max
 
     @property
     def device_info(self) -> DeviceInfo:

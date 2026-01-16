@@ -29,6 +29,8 @@ CONF_SOLAR_DROP: Final = "solar_drop"
 CONF_OUTDOOR_REFERENCE_TEMP: Final = "outdoor_reference_temp"
 CONF_VALVE_MIN_ON_TIME: Final = "valve_min_on_time"
 CONF_VALVE_MIN_OFF_TIME: Final = "valve_min_off_time"
+CONF_QUIET_MODE_MAX_FLOW: Final = "quiet_mode_max_flow"
+CONF_QUIET_MODE_RAMP_MINUTES: Final = "quiet_mode_ramp_minutes"
 
 # Configuration keys - Zones
 CONF_ZONES: Final = "zones"
@@ -55,6 +57,8 @@ DEFAULT_SOLAR_DROP: Final = 5.0  # Temperature reduction for solar (°C)
 DEFAULT_OUTDOOR_REFERENCE_TEMP: Final = 15.0  # Reference temp for outdoor compensation (°C)
 DEFAULT_VALVE_MIN_ON_TIME: Final = 5  # Minimum valve on time (minutes)
 DEFAULT_VALVE_MIN_OFF_TIME: Final = 5  # Minimum valve off time (minutes)
+DEFAULT_QUIET_MODE_MAX_FLOW: Final = 0.0  # Disabled by default (°C, 0 = disabled)
+DEFAULT_QUIET_MODE_RAMP_MINUTES: Final = 60  # Ramp-up time (minutes)
 
 # Default values - Zone
 DEFAULT_WINDOW_DROP: Final = 5.0  # Setpoint reduction when window open (°C)

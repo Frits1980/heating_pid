@@ -1,23 +1,21 @@
 """Schedule reader for Home Assistant schedule helper entities.
 
 Reads schedule helper entities to determine target setpoints throughout
-the day. Uses the schedule helper's data field to specify temperature
-setpoints for each time block.
+the day. Uses the schedule helper's temp attribute which HA maintains
+based on the currently active time block.
 
 The integration uses schedule entities to:
 1. Determine when to start heating (with adaptive start)
 2. Set target temperatures for different times of day
 3. Trigger setpoint changes at scheduled times
 
-Schedule helpers store time blocks per day of week in the format:
-{
-    "monday": [{"from": "07:00:00", "to": "09:00:00", "data": {"temp": 21}}, ...],
-    "tuesday": [...],
-    ...
-}
+Home Assistant schedule helpers expose:
+- state: "on" when a time block is active, "off" otherwise
+- attributes.temp: Temperature from the currently active block's data field
+- attributes.next_event: Datetime of the next schedule transition
 
-Each time block can specify a "temp" key in its data field. If not specified,
-the default_setpoint is used during that block.
+Each time block in the schedule UI can have a "temp" value in its data field.
+When no block is active, the default_setpoint is used.
 """
 
 from __future__ import annotations
@@ -35,6 +33,36 @@ _LOGGER = logging.getLogger(__name__)
 
 # Day name mapping (Python weekday() returns 0=Monday)
 WEEKDAY_NAMES = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+
+
+def _parse_temperature(value: Any) -> float | None:
+    """Parse a temperature value, handling European comma decimals.
+
+    Args:
+        value: Temperature value (int, float, or string)
+
+    Returns:
+        Parsed float value, or None if parsing fails
+    """
+    if value is None:
+        return None
+
+    # Already a number
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    # String - handle European comma decimal separator
+    if isinstance(value, str):
+        try:
+            # Replace comma with dot for European format (e.g., "19,5" -> "19.5")
+            normalized = value.replace(",", ".")
+            return float(normalized)
+        except ValueError:
+            _LOGGER.warning("Failed to parse temperature value: %s", value)
+            return None
+
+    _LOGGER.warning("Unexpected temperature type: %s (%s)", value, type(value).__name__)
+    return None
 
 
 class ScheduleEvent(NamedTuple):
@@ -96,23 +124,36 @@ class ScheduleReader:
     def get_current_setpoint(self, now: datetime | None = None) -> float:
         """Get the setpoint for the current time.
 
+        Home Assistant's schedule helper exposes the current temperature
+        directly via the 'temp' attribute when a schedule block is active.
+
         Args:
-            now: Current datetime, or None to use current time
+            now: Current datetime, or None to use current time (unused, kept for API compatibility)
 
         Returns:
             Target temperature based on schedule (°C)
         """
-        if now is None:
-            now = dt_util.now()
-
-        state = self._get_schedule_state()
+        state = self.hass.states.get(self.entity_id)
         if state is None:
+            _LOGGER.debug("Schedule entity not found: %s", self.entity_id)
             return self.default_setpoint
 
-        # Check if current time falls within an active block and get its temp
-        block_temp = self._get_block_temperature(now, state)
-        if block_temp is not None:
-            return block_temp
+        # Check if schedule is currently active (in a time block)
+        if state.state != "on":
+            return self.default_setpoint
+
+        # Read temperature from the 'temp' attribute (HA provides this directly)
+        temp_value = state.attributes.get("temp")
+        if temp_value is not None:
+            parsed = _parse_temperature(temp_value)
+            if parsed is not None:
+                return parsed
+            _LOGGER.warning(
+                "Schedule %s has invalid temp value: %s",
+                self.entity_id,
+                temp_value,
+            )
+
         return self.default_setpoint
 
     def _get_block_temperature(
@@ -212,6 +253,8 @@ class ScheduleReader:
     def get_time_to_next_active(self, now: datetime | None = None) -> timedelta | None:
         """Get time until the next schedule activation (start of heating period).
 
+        Uses HA's next_event attribute when schedule is currently off.
+
         Args:
             now: Current datetime, or None to use current time
 
@@ -221,25 +264,31 @@ class ScheduleReader:
         if now is None:
             now = dt_util.now()
 
-        # Cache schedule state once before looping
-        state = self._get_schedule_state()
+        state = self.hass.states.get(self.entity_id)
         if state is None:
             return None
 
-        # Search up to 7 days ahead
-        for day_offset in range(7):
-            check_date = now + timedelta(days=day_offset)
-            events = self._parse_schedule_events(check_date, state)
-            for event in events:
-                if event.is_active:  # This is a "start heating" event
-                    event_datetime = datetime.combine(check_date.date(), event.time, tzinfo=dt_util.DEFAULT_TIME_ZONE)
-                    if event_datetime > now:
-                        return event_datetime - now
+        # If schedule is already active, return 0
+        if state.state == "on":
+            return timedelta(0)
+
+        # Use HA's next_event attribute for the next transition
+        next_event = state.attributes.get("next_event")
+        if next_event is None:
+            return None
+
+        # next_event is already a datetime object from HA
+        if isinstance(next_event, datetime):
+            if next_event > now:
+                return next_event - now
+            return timedelta(0)
 
         return None
 
     def get_time_to_next_event(self, now: datetime | None = None) -> timedelta | None:
         """Get time until the next scheduled event (start or end).
+
+        Uses HA's next_event attribute directly.
 
         Args:
             now: Current datetime, or None to use current time
@@ -250,20 +299,29 @@ class ScheduleReader:
         if now is None:
             now = dt_util.now()
 
-        next_event = self.get_next_event(now)
+        state = self.hass.states.get(self.entity_id)
+        if state is None:
+            return None
+
+        # Use HA's next_event attribute
+        next_event = state.attributes.get("next_event")
         if next_event is None:
             return None
 
-        # Calculate time to event
-        event_datetime = datetime.combine(now.date(), next_event.time, tzinfo=dt_util.DEFAULT_TIME_ZONE)
-        if event_datetime <= now:
-            # Event is tomorrow
-            event_datetime += timedelta(days=1)
+        # next_event is already a datetime object from HA
+        if isinstance(next_event, datetime):
+            if next_event > now:
+                return next_event - now
+            return timedelta(0)
 
-        return event_datetime - now
+        return None
 
     def _get_schedule_state(self) -> dict[str, Any] | None:
         """Get the current state of the schedule entity.
+
+        Note: This method is kept for backwards compatibility with legacy code
+        that parses weekday data. The main methods now use HA's direct attributes
+        (state, temp, next_event) instead.
 
         Returns:
             Schedule state attributes, or None if entity not found or invalid
@@ -275,17 +333,7 @@ class ScheduleReader:
                 return None
 
             # Schedule entities store their config in attributes
-            attributes = dict(state.attributes)
-
-            # Validate that schedule has expected structure (at least one weekday key)
-            valid_days = [d for d in WEEKDAY_NAMES if d in attributes]
-            if not valid_days:
-                _LOGGER.warning(
-                    "Schedule entity %s has no weekday data configured",
-                    self.entity_id,
-                )
-
-            return attributes
+            return dict(state.attributes)
         except Exception as err:
             _LOGGER.error(
                 "Error reading schedule entity %s: %s",
@@ -406,33 +454,236 @@ class ScheduleReader:
     def is_schedule_active(self, now: datetime | None = None) -> bool:
         """Check if the schedule is currently in an active period.
 
+        Home Assistant's schedule helper state is "on" when in a time block.
+
         Args:
-            now: Current datetime, or None to use current time
+            now: Current datetime, or None to use current time (unused, kept for API compatibility)
 
         Returns:
             True if currently in a scheduled block (not in default/off period)
         """
-        if now is None:
-            now = dt_util.now()
-
-        state = self._get_schedule_state()
+        state = self.hass.states.get(self.entity_id)
         if state is None:
             return False
 
-        return self._get_block_temperature(now, state) is not None
+        return state.state == "on"
 
-    def get_next_block_setpoint(self, now: datetime | None = None) -> float | None:
-        """Get the setpoint of the next scheduled block.
+    async def get_next_block_setpoint_async(self, now: datetime | None = None) -> float | None:
+        """Get the setpoint of the next scheduled block (async version).
 
-        Used for adaptive start to know what temperature to preheat to.
+        Fetches full schedule data via schedule.get_schedule service to determine
+        the next block's temperature for adaptive start preheating.
 
         Args:
             now: Current datetime, or None to use current time
 
         Returns:
-            Temperature of next active block, or None if no upcoming block
+            Temperature of next active block, or None if unavailable
         """
-        next_event = self.get_next_event(now)
-        if next_event is not None and next_event.is_active:
-            return next_event.setpoint
+        if now is None:
+            now = dt_util.now()
+
+        # Try to get full schedule data
+        schedule_data = await self._fetch_full_schedule()
+        if schedule_data is None:
+            return None
+
+        # Find the next block after current time
+        return self._find_next_block_temp(now, schedule_data)
+
+    def get_next_block_setpoint(self, now: datetime | None = None) -> float | None:
+        """Get the setpoint of the next scheduled block (sync fallback).
+
+        Note: This sync version can only return the current block's temp from
+        entity attributes. For full next-block detection, use get_next_block_setpoint_async.
+
+        Args:
+            now: Current datetime, or None to use current time
+
+        Returns:
+            Temperature of current active block, or None if schedule is off
+        """
+        state = self.hass.states.get(self.entity_id)
+        if state is None:
+            return None
+
+        # If schedule is active, return current temp
+        if state.state == "on":
+            temp_value = state.attributes.get("temp")
+            if temp_value is not None:
+                return _parse_temperature(temp_value)
+
         return None
+
+    async def _fetch_full_schedule(self) -> dict[str, Any] | None:
+        """Fetch full schedule data via schedule.get_schedule service.
+
+        Returns:
+            Full schedule with weekday blocks, or None if unavailable
+        """
+        try:
+            response = await self.hass.services.async_call(
+                "schedule",
+                "get_schedule",
+                {"entity_id": self.entity_id},
+                blocking=True,
+                return_response=True,
+            )
+            if response and self.entity_id in response:
+                return response[self.entity_id]
+        except Exception as err:
+            _LOGGER.debug("Failed to fetch schedule data for %s: %s", self.entity_id, err)
+        return None
+
+    def _find_next_block_temp(
+        self, now: datetime, schedule_data: dict[str, Any]
+    ) -> float | None:
+        """Find the temperature of the next schedule block.
+
+        Args:
+            now: Current datetime
+            schedule_data: Full schedule data from get_schedule service
+
+        Returns:
+            Temperature of next block, or None if not found
+        """
+        current_time = now.time()
+
+        # Check today first, then tomorrow
+        for day_offset in range(2):
+            check_date = now + timedelta(days=day_offset)
+            day_name = WEEKDAY_NAMES[check_date.weekday()]
+            day_blocks = schedule_data.get(day_name, [])
+
+            if not day_blocks:
+                continue
+
+            # Sort blocks by start time
+            sorted_blocks = sorted(
+                day_blocks,
+                key=lambda b: self._parse_time(b.get("from", "99:99:99")) or time(23, 59, 59)
+            )
+
+            for block in sorted_blocks:
+                from_time = self._parse_time(block.get("from", "00:00:00"))
+                if from_time is None:
+                    continue
+
+                # For today, only consider blocks that start after current time
+                # For tomorrow, consider all blocks
+                if day_offset == 0 and from_time <= current_time:
+                    continue
+
+                # Found the next block - get its temperature
+                data = block.get("data", {})
+                if isinstance(data, dict) and self.DATA_TEMP_KEY in data:
+                    return _parse_temperature(data[self.DATA_TEMP_KEY])
+                return self.default_setpoint
+
+        return None
+
+    async def is_first_block_of_day_async(self, now: datetime | None = None) -> bool:
+        """Check if currently in the first schedule block of the day.
+
+        Used for quiet mode detection.
+
+        Args:
+            now: Current datetime, or None to use current time
+
+        Returns:
+            True if in the first block of the day
+        """
+        if now is None:
+            now = dt_util.now()
+
+        # Must be in an active schedule block
+        state = self.hass.states.get(self.entity_id)
+        if state is None or state.state != "on":
+            return False
+
+        schedule_data = await self._fetch_full_schedule()
+        if schedule_data is None:
+            return False
+
+        return self._is_in_first_block(now, schedule_data)
+
+    def _is_in_first_block(self, now: datetime, schedule_data: dict[str, Any]) -> bool:
+        """Check if the current time is in the first block of the day.
+
+        Args:
+            now: Current datetime
+            schedule_data: Full schedule data
+
+        Returns:
+            True if in first block of the day
+        """
+        day_name = WEEKDAY_NAMES[now.weekday()]
+        day_blocks = schedule_data.get(day_name, [])
+
+        if not day_blocks:
+            return False
+
+        # Sort blocks by start time to find the first one
+        sorted_blocks = sorted(
+            day_blocks,
+            key=lambda b: self._parse_time(b.get("from", "99:99:99")) or time(23, 59, 59)
+        )
+
+        first_block = sorted_blocks[0]
+        from_time = self._parse_time(first_block.get("from", "00:00:00"))
+        to_time = self._parse_time(first_block.get("to", "00:00:00"))
+
+        if from_time is None or to_time is None:
+            return False
+
+        current_time = now.time()
+
+        # Check if we're in this first block
+        if from_time <= current_time < to_time:
+            return True
+
+        # Handle overnight blocks
+        if from_time > to_time:
+            if current_time >= from_time or current_time < to_time:
+                return True
+
+        return False
+
+    async def get_first_block_start_time_async(self, now: datetime | None = None) -> datetime | None:
+        """Get the start time of today's first schedule block.
+
+        Used for quiet mode ramp calculation.
+
+        Args:
+            now: Current datetime, or None to use current time
+
+        Returns:
+            Datetime when today's first block started, or None if not in first block
+        """
+        if now is None:
+            now = dt_util.now()
+
+        schedule_data = await self._fetch_full_schedule()
+        if schedule_data is None:
+            return None
+
+        day_name = WEEKDAY_NAMES[now.weekday()]
+        day_blocks = schedule_data.get(day_name, [])
+
+        if not day_blocks:
+            return None
+
+        # Sort blocks by start time
+        sorted_blocks = sorted(
+            day_blocks,
+            key=lambda b: self._parse_time(b.get("from", "99:99:99")) or time(23, 59, 59)
+        )
+
+        first_block = sorted_blocks[0]
+        from_time = self._parse_time(first_block.get("from", "00:00:00"))
+
+        if from_time is None:
+            return None
+
+        # Combine with today's date
+        return datetime.combine(now.date(), from_time, tzinfo=now.tzinfo)

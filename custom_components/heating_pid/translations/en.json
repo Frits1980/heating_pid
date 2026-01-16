@@ -29,7 +29,9 @@
           "solar_threshold": "Solar Power Limit",
           "outdoor_reference_temp": "Outdoor Reference Temperature",
           "valve_min_on_time": "Valve Minimum On Time",
-          "valve_min_off_time": "Valve Minimum Off Time"
+          "valve_min_off_time": "Valve Minimum Off Time",
+          "quiet_mode_max_flow": "Quiet Mode Max Flow Temperature",
+          "quiet_mode_ramp_minutes": "Quiet Mode Ramp-up Time"
         },
         "data_description": {
           "min_egress": "Water temperature when heating demand is minimal (e.g., 25°C)",
@@ -38,7 +40,9 @@
           "solar_threshold": "Reduce heating when solar production exceeds this (Watts)",
           "outdoor_reference_temp": "Reference temperature for outdoor compensation (typically 15°C)",
           "valve_min_on_time": "Minimum time a valve stays open before it can close (minutes)",
-          "valve_min_off_time": "Minimum time a valve stays closed before it can open (minutes)"
+          "valve_min_off_time": "Minimum time a valve stays closed before it can open (minutes)",
+          "quiet_mode_max_flow": "Maximum flow temperature during the first heating block of the day (0 = disabled)",
+          "quiet_mode_ramp_minutes": "Time to gradually increase from quiet mode to normal max flow"
         }
       },
       "zones": {
@@ -162,7 +166,9 @@
           "solar_threshold": "Solar Power Limit",
           "outdoor_reference_temp": "Outdoor Reference Temperature",
           "valve_min_on_time": "Valve Minimum On Time",
-          "valve_min_off_time": "Valve Minimum Off Time"
+          "valve_min_off_time": "Valve Minimum Off Time",
+          "quiet_mode_max_flow": "Quiet Mode Max Flow Temperature",
+          "quiet_mode_ramp_minutes": "Quiet Mode Ramp-up Time"
         },
         "data_description": {
           "min_egress": "Water temperature when heating demand is minimal",
@@ -171,7 +177,9 @@
           "solar_threshold": "Reduce heating when solar exceeds this",
           "outdoor_reference_temp": "Reference temperature for outdoor compensation (typically 15°C)",
           "valve_min_on_time": "Minimum time a valve stays open before it can close (minutes)",
-          "valve_min_off_time": "Minimum time a valve stays closed before it can open (minutes)"
+          "valve_min_off_time": "Minimum time a valve stays closed before it can open (minutes)",
+          "quiet_mode_max_flow": "Maximum flow temperature during the first heating block (0 = disabled)",
+          "quiet_mode_ramp_minutes": "Time to gradually increase from quiet mode to normal max flow"
         }
       },
       "add_zone": {
