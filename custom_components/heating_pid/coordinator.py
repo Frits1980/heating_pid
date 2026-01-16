@@ -817,10 +817,11 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Calculate and apply heater control output.
 
         1. Find maximum demand across all zones
-        2. Apply solar limiting if active
-        3. Check cooldown efficiency
-        4. Calculate target flow temperature from demand curve
-        5. Apply to heater entity (or set to 0 if below ignition level)
+        2. Check cooldown efficiency
+        3. Calculate target flow temperature from demand curve
+        4. Apply to heater entity (or set to 0 if below ignition level)
+
+        Note: Solar limiting is handled at zone level in _update_zone_demands.
         """
         from .const import MIN_EFFICIENT_DELTA_T
 
@@ -858,40 +859,19 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     _LOGGER.info("Exiting cooldown mode: delta-T=%.1f°C", delta_t)
                 self._cooldown_active = False
 
-        # Apply solar limiting if threshold exceeded
-        effective_demand = self._max_demand
-        if (
-            self._solar_power is not None
-            and self._solar_power > self._solar_threshold
-            and effective_demand > 0
-        ):
-            # Reduce demand based on solar excess
-            solar_reduction = min(
-                effective_demand,
-                (self._solar_power - self._solar_threshold) / 100,
-            )
-            effective_demand = max(0, effective_demand - solar_reduction)
-            _LOGGER.debug(
-                "Solar limiting: %.0fW > %.0fW threshold, demand reduced to %.1f%%",
-                self._solar_power,
-                self._solar_threshold,
-                effective_demand,
-            )
-
         # Calculate target flow temperature from demand curve
         # Formula: target = min + (demand / 100) × (max - min)
-        if effective_demand < self._min_ignition_level or self._cooldown_active:
+        if self._max_demand < self._min_ignition_level or self._cooldown_active:
             # Below ignition threshold or in cooldown - turn off
             self._target_flow_temp = 0.0
         else:
             self._target_flow_temp = self._min_egress + (
-                effective_demand / 100.0
+                self._max_demand / 100.0
             ) * (self._max_egress - self._min_egress)
 
         _LOGGER.debug(
-            "Heater control: demand=%.1f%%, effective=%.1f%%, target=%.1f°C, cooldown=%s",
+            "Heater control: demand=%.1f%%, target=%.1f°C, cooldown=%s",
             self._max_demand,
-            effective_demand,
             self._target_flow_temp,
             self._cooldown_active,
         )
