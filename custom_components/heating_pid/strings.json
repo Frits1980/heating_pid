@@ -72,6 +72,10 @@
           "zone_solar_drop": "Override global solar drop for this zone (leave empty to use global)",
           "add_another": "Enable to add more rooms after this one"
         }
+      },
+      "validate_schedule": {
+        "title": "Schedule Validation",
+        "description": "{status_icon} {validation_result}\n\nClick Submit to continue adding this zone."
       }
     },
     "error": {

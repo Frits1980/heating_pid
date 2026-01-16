@@ -81,6 +81,87 @@ def _validate_entity_exists(hass, entity_id: str | None) -> bool:
     return hass.states.get(entity_id) is not None
 
 
+def _validate_schedule_format(hass, entity_id: str | None) -> dict[str, Any]:
+    """Validate a schedule entity has valid temperature blocks.
+
+    Args:
+        hass: Home Assistant instance
+        entity_id: Schedule entity ID to validate
+
+    Returns:
+        Dictionary with 'valid' bool, 'message' str, and 'temps' list
+    """
+    if not entity_id:
+        return {"valid": True, "message": "", "temps": []}
+
+    state = hass.states.get(entity_id)
+    if state is None:
+        return {"valid": False, "message": "Schedule entity not found", "temps": []}
+
+    weekday_names = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+    attributes = dict(state.attributes)
+
+    # Check for weekday data
+    valid_days = [d for d in weekday_names if d in attributes]
+    if not valid_days:
+        return {
+            "valid": False,
+            "message": "No schedule blocks configured",
+            "temps": [],
+        }
+
+    # Collect all temperature values
+    temps: list[float] = []
+    blocks_without_temp = 0
+    total_blocks = 0
+
+    for day in valid_days:
+        day_schedule = attributes.get(day, [])
+        for block in day_schedule:
+            if not isinstance(block, dict):
+                continue
+            total_blocks += 1
+            data = block.get("data", {})
+            if isinstance(data, dict) and "temp" in data:
+                try:
+                    temps.append(float(data["temp"]))
+                except (ValueError, TypeError):
+                    pass
+            else:
+                blocks_without_temp += 1
+
+    if total_blocks == 0:
+        return {
+            "valid": False,
+            "message": "No time blocks found in schedule",
+            "temps": [],
+        }
+
+    unique_temps = sorted(set(temps))
+
+    if not temps:
+        return {
+            "valid": False,
+            "message": f"Found {total_blocks} blocks but none have temperature values. "
+                       "Add 'temp' to each block's data field.",
+            "temps": [],
+        }
+
+    if blocks_without_temp > 0:
+        return {
+            "valid": True,
+            "message": f"Found {len(temps)} temperature blocks ({', '.join(f'{t}°C' for t in unique_temps)}). "
+                       f"Note: {blocks_without_temp} blocks have no temp (will use default).",
+            "temps": unique_temps,
+        }
+
+    return {
+        "valid": True,
+        "message": f"Valid: {len(temps)} temperature blocks ({', '.join(f'{t}°C' for t in unique_temps)})",
+        "temps": unique_temps,
+    }
+
+
 class EmsZoneMasterConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for EMS Zone Master.
 
@@ -96,6 +177,8 @@ class EmsZoneMasterConfigFlow(ConfigFlow, domain=DOMAIN):
         """Initialize the config flow."""
         self._data: dict[str, Any] = {}
         self._zones: list[dict[str, Any]] = []
+        self._pending_zone_data: dict[str, Any] = {}
+        self._pending_add_another: bool = False
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -288,14 +371,19 @@ class EmsZoneMasterConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors[CONF_ZONE_SCHEDULE_ENTITY] = "entity_not_found"
 
             if not errors:
+                zone_data = {k: v for k, v in user_input.items() if k != "add_another"}
+
+                # If schedule entity provided, show validation step
+                if zone_data.get(CONF_ZONE_SCHEDULE_ENTITY):
+                    self._pending_zone_data = zone_data
+                    self._pending_add_another = user_input.get("add_another", False)
+                    return await self.async_step_validate_schedule()
+
+                # No schedule, proceed directly
                 if user_input.get("add_another", False):
-                    # Store this zone and show form again
-                    zone_data = {k: v for k, v in user_input.items() if k != "add_another"}
                     self._zones.append(zone_data)
                     return await self.async_step_zones()
                 else:
-                    # Store final zone and complete
-                    zone_data = {k: v for k, v in user_input.items() if k != "add_another"}
                     self._zones.append(zone_data)
                     self._data[CONF_ZONES] = self._zones
                     return self.async_create_entry(
@@ -351,6 +439,39 @@ class EmsZoneMasterConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=schema,
             errors=errors,
             description_placeholders={"zone_count": str(len(self._zones) + 1)},
+        )
+
+    async def async_step_validate_schedule(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Show schedule validation result and allow proceeding.
+
+        This step displays the validation result for the schedule entity
+        and allows the user to continue with the zone configuration.
+        """
+        if user_input is not None:
+            # User confirmed, proceed with stored zone data
+            self._zones.append(self._pending_zone_data)
+            if self._pending_add_another:
+                return await self.async_step_zones()
+            else:
+                self._data[CONF_ZONES] = self._zones
+                return self.async_create_entry(
+                    title="EMS Zone Master",
+                    data=self._data,
+                )
+
+        # Get the schedule entity from stored data
+        schedule_entity = self._pending_zone_data.get(CONF_ZONE_SCHEDULE_ENTITY)
+        validation = _validate_schedule_format(self.hass, schedule_entity)
+
+        return self.async_show_form(
+            step_id="validate_schedule",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "validation_result": validation["message"],
+                "status_icon": "✓" if validation["valid"] else "⚠",
+            },
         )
 
     @staticmethod
