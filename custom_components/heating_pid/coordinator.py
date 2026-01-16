@@ -962,48 +962,51 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if current_state is None:
             return
 
-        is_on = current_state.state == "on"
-        now = dt_util.now()
+        try:
+            is_on = current_state.state == "on"
+            now = dt_util.now()
 
-        # Apply valve anti-cycling protection
-        if should_open and not is_on:
-            # Check minimum off-time before opening
-            if zone.valve_closed_at and self._valve_min_off_time > 0:
-                time_since_close = (now - zone.valve_closed_at).total_seconds() / 60
-                if time_since_close < self._valve_min_off_time:
-                    _LOGGER.debug(
-                        "Valve %s: skipping open, only %.1f min since close (min: %d)",
-                        entity_id,
-                        time_since_close,
-                        self._valve_min_off_time,
-                    )
-                    return
+            # Apply valve anti-cycling protection
+            if should_open and not is_on:
+                # Check minimum off-time before opening
+                if zone.valve_closed_at and self._valve_min_off_time > 0:
+                    time_since_close = (now - zone.valve_closed_at).total_seconds() / 60
+                    if time_since_close < self._valve_min_off_time:
+                        _LOGGER.debug(
+                            "Valve %s: skipping open, only %.1f min since close (min: %d)",
+                            entity_id,
+                            time_since_close,
+                            self._valve_min_off_time,
+                        )
+                        return
 
-            await self.hass.services.async_call(
-                "switch", "turn_on", {"entity_id": entity_id}, blocking=True
-            )
-            zone.last_valve_activity = now
-            zone.valve_opened_at = now
-            _LOGGER.debug("Opened valve: %s", entity_id)
+                await self.hass.services.async_call(
+                    "switch", "turn_on", {"entity_id": entity_id}, blocking=True
+                )
+                zone.last_valve_activity = now
+                zone.valve_opened_at = now
+                _LOGGER.debug("Opened valve: %s", entity_id)
 
-        elif not should_open and is_on:
-            # Check minimum on-time before closing
-            if zone.valve_opened_at and self._valve_min_on_time > 0:
-                time_since_open = (now - zone.valve_opened_at).total_seconds() / 60
-                if time_since_open < self._valve_min_on_time:
-                    _LOGGER.debug(
-                        "Valve %s: skipping close, only %.1f min since open (min: %d)",
-                        entity_id,
-                        time_since_open,
-                        self._valve_min_on_time,
-                    )
-                    return
+            elif not should_open and is_on:
+                # Check minimum on-time before closing
+                if zone.valve_opened_at and self._valve_min_on_time > 0:
+                    time_since_open = (now - zone.valve_opened_at).total_seconds() / 60
+                    if time_since_open < self._valve_min_on_time:
+                        _LOGGER.debug(
+                            "Valve %s: skipping close, only %.1f min since open (min: %d)",
+                            entity_id,
+                            time_since_open,
+                            self._valve_min_on_time,
+                        )
+                        return
 
-            await self.hass.services.async_call(
-                "switch", "turn_off", {"entity_id": entity_id}, blocking=True
-            )
-            zone.valve_closed_at = now
-            _LOGGER.debug("Closed valve: %s", entity_id)
+                await self.hass.services.async_call(
+                    "switch", "turn_off", {"entity_id": entity_id}, blocking=True
+                )
+                zone.valve_closed_at = now
+                _LOGGER.debug("Closed valve: %s", entity_id)
+        except Exception as err:
+            _LOGGER.error("Failed to control switch valve %s: %s", entity_id, err)
 
     async def _control_climate_valve(
         self, entity_id: str, zone: ZoneState, should_open: bool
@@ -1022,61 +1025,64 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if current_state is None:
             return
 
-        current_mode = current_state.state
-        now = dt_util.now()
+        try:
+            current_mode = current_state.state
+            now = dt_util.now()
 
-        if should_open:
-            # Check minimum off-time before opening
-            if current_mode != "heat":
-                if zone.valve_closed_at and self._valve_min_off_time > 0:
-                    time_since_close = (now - zone.valve_closed_at).total_seconds() / 60
-                    if time_since_close < self._valve_min_off_time:
+            if should_open:
+                # Check minimum off-time before opening
+                if current_mode != "heat":
+                    if zone.valve_closed_at and self._valve_min_off_time > 0:
+                        time_since_close = (now - zone.valve_closed_at).total_seconds() / 60
+                        if time_since_close < self._valve_min_off_time:
+                            _LOGGER.debug(
+                                "Climate %s: skipping heat, only %.1f min since off (min: %d)",
+                                entity_id,
+                                time_since_close,
+                                self._valve_min_off_time,
+                            )
+                            return
+
+                    await self.hass.services.async_call(
+                        "climate",
+                        "set_hvac_mode",
+                        {"entity_id": entity_id, "hvac_mode": "heat"},
+                        blocking=True,
+                    )
+                    zone.last_valve_activity = now
+                    zone.valve_opened_at = now
+                    _LOGGER.debug("Set climate to heat: %s", entity_id)
+
+                # Also set temperature to zone setpoint
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_temperature",
+                    {"entity_id": entity_id, "temperature": zone.setpoint},
+                    blocking=True,
+                )
+            elif current_mode not in ("off", "unavailable"):
+                # Check minimum on-time before closing
+                if zone.valve_opened_at and self._valve_min_on_time > 0:
+                    time_since_open = (now - zone.valve_opened_at).total_seconds() / 60
+                    if time_since_open < self._valve_min_on_time:
                         _LOGGER.debug(
-                            "Climate %s: skipping heat, only %.1f min since off (min: %d)",
+                            "Climate %s: skipping off, only %.1f min since heat (min: %d)",
                             entity_id,
-                            time_since_close,
-                            self._valve_min_off_time,
+                            time_since_open,
+                            self._valve_min_on_time,
                         )
                         return
 
                 await self.hass.services.async_call(
                     "climate",
                     "set_hvac_mode",
-                    {"entity_id": entity_id, "hvac_mode": "heat"},
+                    {"entity_id": entity_id, "hvac_mode": "off"},
                     blocking=True,
                 )
-                zone.last_valve_activity = now
-                zone.valve_opened_at = now
-                _LOGGER.debug("Set climate to heat: %s", entity_id)
-
-            # Also set temperature to zone setpoint
-            await self.hass.services.async_call(
-                "climate",
-                "set_temperature",
-                {"entity_id": entity_id, "temperature": zone.setpoint},
-                blocking=True,
-            )
-        elif current_mode not in ("off", "unavailable"):
-            # Check minimum on-time before closing
-            if zone.valve_opened_at and self._valve_min_on_time > 0:
-                time_since_open = (now - zone.valve_opened_at).total_seconds() / 60
-                if time_since_open < self._valve_min_on_time:
-                    _LOGGER.debug(
-                        "Climate %s: skipping off, only %.1f min since heat (min: %d)",
-                        entity_id,
-                        time_since_open,
-                        self._valve_min_on_time,
-                    )
-                    return
-
-            await self.hass.services.async_call(
-                "climate",
-                "set_hvac_mode",
-                {"entity_id": entity_id, "hvac_mode": "off"},
-                blocking=True,
-            )
-            zone.valve_closed_at = now
-            _LOGGER.debug("Set climate to off: %s", entity_id)
+                zone.valve_closed_at = now
+                _LOGGER.debug("Set climate to off: %s", entity_id)
+        except Exception as err:
+            _LOGGER.error("Failed to control climate valve %s: %s", entity_id, err)
 
     async def _set_heater_temperature(self, temperature: float) -> None:
         """Set the heater flow temperature setpoint.
