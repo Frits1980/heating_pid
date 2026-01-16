@@ -5,7 +5,7 @@ from typing import Final
 from homeassistant.const import Platform
 
 # Version - keep in sync with manifest.json
-VERSION: Final = "0.4.3"
+VERSION: Final = "0.5.0"
 
 # Domain
 DOMAIN: Final = "heating_pid"

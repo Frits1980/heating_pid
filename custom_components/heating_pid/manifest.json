@@ -1,7 +1,7 @@
 {
   "domain": "heating_pid",
   "name": "Heating PID (dry construction underfloor heating)",
-  "version": "0.4.3",
+  "version": "0.5.0",
   "codeowners": [],
   "config_flow": true,
   "dependencies": [],
