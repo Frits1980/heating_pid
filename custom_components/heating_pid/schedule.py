@@ -134,6 +134,15 @@ class ScheduleReader:
         check_time = now.time()
 
         for block in day_schedule:
+            # Validate block structure
+            if not isinstance(block, dict):
+                _LOGGER.warning(
+                    "Invalid schedule block type for %s: expected dict, got %s",
+                    self.entity_id,
+                    type(block).__name__,
+                )
+                continue
+
             from_time = self._parse_time(block.get("from", "00:00:00"))
             to_time = self._parse_time(block.get("to", "00:00:00"))
 
@@ -210,13 +219,14 @@ class ScheduleReader:
         if now is None:
             now = datetime.now()
 
+        # Cache schedule state once before looping
+        state = self._get_schedule_state()
+        if state is None:
+            return None
+
         # Search up to 7 days ahead
         for day_offset in range(7):
             check_date = now + timedelta(days=day_offset)
-            state = self._get_schedule_state()
-            if state is None:
-                return None
-
             events = self._parse_schedule_events(check_date, state)
             for event in events:
                 if event.is_active:  # This is a "start heating" event
@@ -254,15 +264,33 @@ class ScheduleReader:
         """Get the current state of the schedule entity.
 
         Returns:
-            Schedule state attributes, or None if entity not found
+            Schedule state attributes, or None if entity not found or invalid
         """
-        state = self.hass.states.get(self.entity_id)
-        if state is None:
-            _LOGGER.debug("Schedule entity not found: %s", self.entity_id)
-            return None
+        try:
+            state = self.hass.states.get(self.entity_id)
+            if state is None:
+                _LOGGER.debug("Schedule entity not found: %s", self.entity_id)
+                return None
 
-        # Schedule entities store their config in attributes
-        return dict(state.attributes)
+            # Schedule entities store their config in attributes
+            attributes = dict(state.attributes)
+
+            # Validate that schedule has expected structure (at least one weekday key)
+            valid_days = [d for d in WEEKDAY_NAMES if d in attributes]
+            if not valid_days:
+                _LOGGER.warning(
+                    "Schedule entity %s has no weekday data configured",
+                    self.entity_id,
+                )
+
+            return attributes
+        except Exception as err:
+            _LOGGER.error(
+                "Error reading schedule entity %s: %s",
+                self.entity_id,
+                err,
+            )
+            return None
 
     def _is_time_in_schedule(self, now: datetime, schedule_state: dict[str, Any]) -> bool:
         """Check if a datetime falls within active schedule blocks.
@@ -297,10 +325,25 @@ class ScheduleReader:
         events: list[ScheduleEvent] = []
 
         for block in day_schedule:
+            # Validate block structure
+            if not isinstance(block, dict):
+                _LOGGER.warning(
+                    "Invalid schedule block type for %s on %s: expected dict, got %s",
+                    self.entity_id,
+                    day_name,
+                    type(block).__name__,
+                )
+                continue
+
             from_time = self._parse_time(block.get("from", "00:00:00"))
             to_time = self._parse_time(block.get("to", "00:00:00"))
 
             if from_time is None or to_time is None:
+                _LOGGER.debug(
+                    "Skipping schedule block with invalid time in %s on %s",
+                    self.entity_id,
+                    day_name,
+                )
                 continue
 
             # Get temperature from block's data field
@@ -310,7 +353,11 @@ class ScheduleReader:
                 try:
                     block_temp = float(data[self.DATA_TEMP_KEY])
                 except (ValueError, TypeError):
-                    pass
+                    _LOGGER.warning(
+                        "Invalid temp value in schedule block data for %s: %s",
+                        self.entity_id,
+                        data.get(self.DATA_TEMP_KEY),
+                    )
 
             # Start of active period
             events.append(ScheduleEvent(

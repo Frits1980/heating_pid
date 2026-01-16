@@ -27,14 +27,20 @@
           "max_egress": "Highest Water Temperature",
           "min_ignition_level": "Minimum Demand to Start",
           "solar_threshold": "Solar Power Limit",
-          "solar_drop": "Solar Temperature Reduction"
+          "solar_drop": "Solar Temperature Reduction",
+          "outdoor_reference_temp": "Outdoor Reference Temperature",
+          "valve_min_on_time": "Valve Minimum On Time",
+          "valve_min_off_time": "Valve Minimum Off Time"
         },
         "data_description": {
           "min_egress": "Water temperature when heating demand is minimal (e.g., 25°C)",
           "max_egress": "Water temperature at full heating demand (e.g., 55°C)",
           "min_ignition_level": "Heating won't start until demand exceeds this percentage",
           "solar_threshold": "Reduce heating when solar production exceeds this (Watts)",
-          "solar_drop": "How much to lower water temperature when solar limit is reached"
+          "solar_drop": "How much to lower water temperature when solar limit is reached",
+          "outdoor_reference_temp": "Reference temperature for outdoor compensation (typically 15°C)",
+          "valve_min_on_time": "Minimum time a valve stays open before it can close (minutes)",
+          "valve_min_off_time": "Minimum time a valve stays closed before it can open (minutes)"
         }
       },
       "zones": {
@@ -51,6 +57,7 @@
           "ki": "Precision (Ki)",
           "kd": "Stability (Kd)",
           "ke": "Weather Adjustment (Ke)",
+          "zone_solar_drop": "Solar Temperature Drop (optional)",
           "add_another": "Add Another Room"
         },
         "data_description": {
@@ -64,6 +71,7 @@
           "ki": "Higher = more precise, slower to settle (UFH: 0.01-0.1, radiators: 0.1-0.5)",
           "kd": "Higher = smoother, less overshooting (UFH: 100-300, radiators: 10-50)",
           "ke": "Boost heating when it's cold outside (typical: 0.01-0.03)",
+          "zone_solar_drop": "Override global solar drop for this zone (leave empty to use global)",
           "add_another": "Enable to add more rooms after this one"
         }
       }
@@ -125,7 +133,8 @@
           "kp": "Speed (Kp)",
           "ki": "Precision (Ki)",
           "kd": "Stability (Kd)",
-          "ke": "Weather Adjustment (Ke)"
+          "ke": "Weather Adjustment (Ke)",
+          "zone_solar_drop": "Solar Temperature Drop (optional)"
         },
         "data_description": {
           "zone_name": "The name of this zone",
@@ -137,7 +146,8 @@
           "kp": "Higher = faster response (UFH: 5-15, radiators: 20-50)",
           "ki": "Higher = more precise (UFH: 0.01-0.1, radiators: 0.1-0.5)",
           "kd": "Higher = smoother (UFH: 100-300, radiators: 10-50)",
-          "ke": "Boost when cold outside (typical: 0.01-0.03)"
+          "ke": "Boost when cold outside (typical: 0.01-0.03)",
+          "zone_solar_drop": "Override global solar drop for this zone (leave empty to use global)"
         }
       },
       "global_settings": {
@@ -148,14 +158,20 @@
           "max_egress": "Highest Water Temperature",
           "min_ignition_level": "Minimum Demand to Start",
           "solar_threshold": "Solar Power Limit",
-          "solar_drop": "Solar Temperature Reduction"
+          "solar_drop": "Solar Temperature Reduction",
+          "outdoor_reference_temp": "Outdoor Reference Temperature",
+          "valve_min_on_time": "Valve Minimum On Time",
+          "valve_min_off_time": "Valve Minimum Off Time"
         },
         "data_description": {
           "min_egress": "Water temperature when heating demand is minimal",
           "max_egress": "Water temperature at full heating demand",
           "min_ignition_level": "Heating won't start until demand exceeds this",
           "solar_threshold": "Reduce heating when solar exceeds this",
-          "solar_drop": "How much to lower temperature when solar limit is reached"
+          "solar_drop": "How much to lower temperature when solar limit is reached",
+          "outdoor_reference_temp": "Reference temperature for outdoor compensation (typically 15°C)",
+          "valve_min_on_time": "Minimum time a valve stays open before it can close (minutes)",
+          "valve_min_off_time": "Minimum time a valve stays closed before it can open (minutes)"
         }
       },
       "add_zone": {
@@ -171,7 +187,8 @@
           "kp": "Speed (Kp)",
           "ki": "Precision (Ki)",
           "kd": "Stability (Kd)",
-          "ke": "Weather Adjustment (Ke)"
+          "ke": "Weather Adjustment (Ke)",
+          "zone_solar_drop": "Solar Temperature Drop (optional)"
         },
         "data_description": {
           "zone_name": "Give this room a name (e.g., Living Room)",
@@ -183,7 +200,8 @@
           "kp": "Higher = faster response (UFH: 5-15, radiators: 20-50)",
           "ki": "Higher = more precise (UFH: 0.01-0.1, radiators: 0.1-0.5)",
           "kd": "Higher = smoother (UFH: 100-300, radiators: 10-50)",
-          "ke": "Boost when cold outside (typical: 0.01-0.03)"
+          "ke": "Boost when cold outside (typical: 0.01-0.03)",
+          "zone_solar_drop": "Override global solar drop for this zone (leave empty to use global)"
         }
       }
     }

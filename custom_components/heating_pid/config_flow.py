@@ -33,14 +33,18 @@ from .const import (
     CONF_MAX_EGRESS,
     CONF_MIN_EGRESS,
     CONF_MIN_IGNITION_LEVEL,
+    CONF_OUTDOOR_REFERENCE_TEMP,
     CONF_OUTDOOR_TEMP_ENTITY,
     CONF_RETURN_TEMP_ENTITY,
     CONF_SOLAR_DROP,
     CONF_SOLAR_POWER_ENTITY,
     CONF_SOLAR_THRESHOLD,
+    CONF_VALVE_MIN_OFF_TIME,
+    CONF_VALVE_MIN_ON_TIME,
     CONF_ZONE_DEFAULT_SETPOINT,
     CONF_ZONE_NAME,
     CONF_ZONE_SCHEDULE_ENTITY,
+    CONF_ZONE_SOLAR_DROP,
     CONF_ZONE_TEMP_ENTITY,
     CONF_ZONE_VALVE_ENTITY,
     CONF_ZONE_WINDOW_ENTITY,
@@ -52,13 +56,31 @@ from .const import (
     DEFAULT_MAX_EGRESS,
     DEFAULT_MIN_EGRESS,
     DEFAULT_MIN_IGNITION_LEVEL,
+    DEFAULT_OUTDOOR_REFERENCE_TEMP,
     DEFAULT_SETPOINT,
     DEFAULT_SOLAR_DROP,
     DEFAULT_SOLAR_THRESHOLD,
+    DEFAULT_VALVE_MIN_OFF_TIME,
+    DEFAULT_VALVE_MIN_ON_TIME,
     DOMAIN,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _validate_entity_exists(hass, entity_id: str | None) -> bool:
+    """Check if an entity exists in Home Assistant.
+
+    Args:
+        hass: Home Assistant instance
+        entity_id: Entity ID to validate
+
+    Returns:
+        True if entity exists or entity_id is None/empty, False otherwise
+    """
+    if not entity_id:
+        return True
+    return hass.states.get(entity_id) is not None
 
 
 class EmsZoneMasterConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -98,10 +120,24 @@ class EmsZoneMasterConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            # Validate entities exist
-            # TODO: Phase 1 - Add entity validation
-            self._data.update(user_input)
-            return await self.async_step_global()
+            # Validate required entities exist
+            required_entities = [
+                CONF_HEATER_ENTITY,
+                CONF_FLOW_TEMP_ENTITY,
+                CONF_RETURN_TEMP_ENTITY,
+                CONF_OUTDOOR_TEMP_ENTITY,
+            ]
+            for entity_key in required_entities:
+                if not _validate_entity_exists(self.hass, user_input.get(entity_key)):
+                    errors[entity_key] = "entity_not_found"
+
+            # Validate optional entity if provided
+            if not _validate_entity_exists(self.hass, user_input.get(CONF_SOLAR_POWER_ENTITY)):
+                errors[CONF_SOLAR_POWER_ENTITY] = "entity_not_found"
+
+            if not errors:
+                self._data.update(user_input)
+                return await self.async_step_global()
 
         schema = vol.Schema(
             {
@@ -193,6 +229,27 @@ class EmsZoneMasterConfigFlow(ConfigFlow, domain=DOMAIN):
                         min=0, max=10, step=0.5, unit_of_measurement="°C"
                     )
                 ),
+                vol.Required(
+                    CONF_OUTDOOR_REFERENCE_TEMP, default=DEFAULT_OUTDOOR_REFERENCE_TEMP
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=5, max=25, step=1, unit_of_measurement="°C"
+                    )
+                ),
+                vol.Required(
+                    CONF_VALVE_MIN_ON_TIME, default=DEFAULT_VALVE_MIN_ON_TIME
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=30, step=1, unit_of_measurement="min"
+                    )
+                ),
+                vol.Required(
+                    CONF_VALVE_MIN_OFF_TIME, default=DEFAULT_VALVE_MIN_OFF_TIME
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=30, step=1, unit_of_measurement="min"
+                    )
+                ),
             }
         )
 
@@ -227,20 +284,33 @@ class EmsZoneMasterConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            if user_input.get("add_another", False):
-                # Store this zone and show form again
-                zone_data = {k: v for k, v in user_input.items() if k != "add_another"}
-                self._zones.append(zone_data)
-                return await self.async_step_zones()
-            else:
-                # Store final zone and complete
-                zone_data = {k: v for k, v in user_input.items() if k != "add_another"}
-                self._zones.append(zone_data)
-                self._data[CONF_ZONES] = self._zones
-                return self.async_create_entry(
-                    title="EMS Zone Master",
-                    data=self._data,
-                )
+            # Validate required entities exist
+            if not _validate_entity_exists(self.hass, user_input.get(CONF_ZONE_TEMP_ENTITY)):
+                errors[CONF_ZONE_TEMP_ENTITY] = "entity_not_found"
+            if not _validate_entity_exists(self.hass, user_input.get(CONF_ZONE_VALVE_ENTITY)):
+                errors[CONF_ZONE_VALVE_ENTITY] = "entity_not_found"
+
+            # Validate optional entities if provided
+            if not _validate_entity_exists(self.hass, user_input.get(CONF_ZONE_WINDOW_ENTITY)):
+                errors[CONF_ZONE_WINDOW_ENTITY] = "entity_not_found"
+            if not _validate_entity_exists(self.hass, user_input.get(CONF_ZONE_SCHEDULE_ENTITY)):
+                errors[CONF_ZONE_SCHEDULE_ENTITY] = "entity_not_found"
+
+            if not errors:
+                if user_input.get("add_another", False):
+                    # Store this zone and show form again
+                    zone_data = {k: v for k, v in user_input.items() if k != "add_another"}
+                    self._zones.append(zone_data)
+                    return await self.async_step_zones()
+                else:
+                    # Store final zone and complete
+                    zone_data = {k: v for k, v in user_input.items() if k != "add_another"}
+                    self._zones.append(zone_data)
+                    self._data[CONF_ZONES] = self._zones
+                    return self.async_create_entry(
+                        title="EMS Zone Master",
+                        data=self._data,
+                    )
 
         schema = vol.Schema(
             {
@@ -275,6 +345,11 @@ class EmsZoneMasterConfigFlow(ConfigFlow, domain=DOMAIN):
                 ),
                 vol.Required(CONF_KE, default=DEFAULT_KE): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=0, max=0.2, step=0.005)
+                ),
+                vol.Optional(CONF_ZONE_SOLAR_DROP): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=10, step=0.5, unit_of_measurement="°C"
+                    )
                 ),
                 vol.Optional("add_another", default=False): selector.BooleanSelector(),
             }
@@ -380,6 +455,30 @@ class EmsZoneMasterOptionsFlow(OptionsFlow):
                         min=0, max=10, step=0.5, unit_of_measurement="°C"
                     )
                 ),
+                vol.Required(
+                    CONF_OUTDOOR_REFERENCE_TEMP,
+                    default=self.config_entry.data.get(CONF_OUTDOOR_REFERENCE_TEMP, DEFAULT_OUTDOOR_REFERENCE_TEMP),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=5, max=25, step=1, unit_of_measurement="°C"
+                    )
+                ),
+                vol.Required(
+                    CONF_VALVE_MIN_ON_TIME,
+                    default=self.config_entry.data.get(CONF_VALVE_MIN_ON_TIME, DEFAULT_VALVE_MIN_ON_TIME),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=30, step=1, unit_of_measurement="min"
+                    )
+                ),
+                vol.Required(
+                    CONF_VALVE_MIN_OFF_TIME,
+                    default=self.config_entry.data.get(CONF_VALVE_MIN_OFF_TIME, DEFAULT_VALVE_MIN_OFF_TIME),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=30, step=1, unit_of_measurement="min"
+                    )
+                ),
             }
         )
 
@@ -396,13 +495,26 @@ class EmsZoneMasterOptionsFlow(OptionsFlow):
         errors: dict[str, str] = {}
 
         if user_input is not None:
+            # Validate required entities exist
+            if not _validate_entity_exists(self.hass, user_input.get(CONF_ZONE_TEMP_ENTITY)):
+                errors[CONF_ZONE_TEMP_ENTITY] = "entity_not_found"
+            if not _validate_entity_exists(self.hass, user_input.get(CONF_ZONE_VALVE_ENTITY)):
+                errors[CONF_ZONE_VALVE_ENTITY] = "entity_not_found"
+
+            # Validate optional entities if provided
+            if not _validate_entity_exists(self.hass, user_input.get(CONF_ZONE_WINDOW_ENTITY)):
+                errors[CONF_ZONE_WINDOW_ENTITY] = "entity_not_found"
+            if not _validate_entity_exists(self.hass, user_input.get(CONF_ZONE_SCHEDULE_ENTITY)):
+                errors[CONF_ZONE_SCHEDULE_ENTITY] = "entity_not_found"
+
             # Check for duplicate zone name
             existing_zones = self.config_entry.data.get(CONF_ZONES, [])
             existing_names = [z.get(CONF_ZONE_NAME) for z in existing_zones]
 
             if user_input[CONF_ZONE_NAME] in existing_names:
                 errors["base"] = "zone_name_exists"
-            else:
+
+            if not errors:
                 # Add new zone to existing zones
                 new_zones = list(existing_zones)
                 new_zones.append(user_input)
@@ -451,6 +563,11 @@ class EmsZoneMasterOptionsFlow(OptionsFlow):
                 ),
                 vol.Required(CONF_KE, default=DEFAULT_KE): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=0, max=0.2, step=0.005)
+                ),
+                vol.Optional(CONF_ZONE_SOLAR_DROP): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=10, step=0.5, unit_of_measurement="°C"
+                    )
                 ),
             }
         )
@@ -513,6 +630,12 @@ class EmsZoneMasterOptionsFlow(OptionsFlow):
 
         if user_input is not None:
             if user_input.get("confirm", False):
+                # Clear stored data for this zone (warmup factors, PID integrals, etc.)
+                coordinator = self.config_entry.runtime_data
+                if coordinator and self._selected_zone:
+                    coordinator.store.clear_zone(self._selected_zone)
+                    await coordinator.store.async_save()
+
                 # Remove zone from config
                 zones = list(self.config_entry.data.get(CONF_ZONES, []))
                 zones = [z for z in zones if z[CONF_ZONE_NAME] != self._selected_zone]
@@ -560,6 +683,18 @@ class EmsZoneMasterOptionsFlow(OptionsFlow):
             return self.async_abort(reason="zone_not_found")
 
         if user_input is not None:
+            # Validate required entities exist
+            if not _validate_entity_exists(self.hass, user_input.get(CONF_ZONE_TEMP_ENTITY)):
+                errors[CONF_ZONE_TEMP_ENTITY] = "entity_not_found"
+            if not _validate_entity_exists(self.hass, user_input.get(CONF_ZONE_VALVE_ENTITY)):
+                errors[CONF_ZONE_VALVE_ENTITY] = "entity_not_found"
+
+            # Validate optional entities if provided
+            if not _validate_entity_exists(self.hass, user_input.get(CONF_ZONE_WINDOW_ENTITY)):
+                errors[CONF_ZONE_WINDOW_ENTITY] = "entity_not_found"
+            if not _validate_entity_exists(self.hass, user_input.get(CONF_ZONE_SCHEDULE_ENTITY)):
+                errors[CONF_ZONE_SCHEDULE_ENTITY] = "entity_not_found"
+
             # Check for duplicate zone name (if changed)
             existing_names = [
                 z[CONF_ZONE_NAME] for z in zones if z[CONF_ZONE_NAME] != self._selected_zone
@@ -567,7 +702,8 @@ class EmsZoneMasterOptionsFlow(OptionsFlow):
 
             if user_input[CONF_ZONE_NAME] in existing_names:
                 errors["base"] = "zone_name_exists"
-            else:
+
+            if not errors:
                 # If zone name changed, remove old device first to avoid orphaned entities
                 old_zone_name = self._selected_zone
                 new_zone_name = user_input[CONF_ZONE_NAME]
@@ -652,6 +788,14 @@ class EmsZoneMasterOptionsFlow(OptionsFlow):
                     CONF_KE, default=current_zone.get(CONF_KE, DEFAULT_KE)
                 ): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=0, max=0.2, step=0.005)
+                ),
+                vol.Optional(
+                    CONF_ZONE_SOLAR_DROP,
+                    description={"suggested_value": current_zone.get(CONF_ZONE_SOLAR_DROP)},
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=10, step=0.5, unit_of_measurement="°C"
+                    )
                 ),
             }
         )

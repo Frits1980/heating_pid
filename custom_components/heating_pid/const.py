@@ -2,6 +2,9 @@
 
 from typing import Final
 
+# Version - keep in sync with manifest.json
+VERSION: Final = "0.4.3"
+
 # Domain
 DOMAIN: Final = "heating_pid"
 
@@ -21,6 +24,9 @@ CONF_MAX_EGRESS: Final = "max_egress"
 CONF_MIN_IGNITION_LEVEL: Final = "min_ignition_level"
 CONF_SOLAR_THRESHOLD: Final = "solar_threshold"
 CONF_SOLAR_DROP: Final = "solar_drop"
+CONF_OUTDOOR_REFERENCE_TEMP: Final = "outdoor_reference_temp"
+CONF_VALVE_MIN_ON_TIME: Final = "valve_min_on_time"
+CONF_VALVE_MIN_OFF_TIME: Final = "valve_min_off_time"
 
 # Configuration keys - Zones
 CONF_ZONES: Final = "zones"
@@ -30,6 +36,7 @@ CONF_ZONE_VALVE_ENTITY: Final = "zone_valve_entity"
 CONF_ZONE_WINDOW_ENTITY: Final = "zone_window_entity"
 CONF_ZONE_SCHEDULE_ENTITY: Final = "zone_schedule_entity"
 CONF_ZONE_DEFAULT_SETPOINT: Final = "zone_default_setpoint"
+CONF_ZONE_SOLAR_DROP: Final = "zone_solar_drop"
 
 # Configuration keys - PID
 CONF_KP: Final = "kp"
@@ -43,6 +50,9 @@ DEFAULT_MAX_EGRESS: Final = 55  # Maximum flow temperature (°C)
 DEFAULT_MIN_IGNITION_LEVEL: Final = 20  # Demand threshold (%)
 DEFAULT_SOLAR_THRESHOLD: Final = 2000  # Solar power limit (W)
 DEFAULT_SOLAR_DROP: Final = 5.0  # Temperature reduction for solar (°C)
+DEFAULT_OUTDOOR_REFERENCE_TEMP: Final = 15.0  # Reference temp for outdoor compensation (°C)
+DEFAULT_VALVE_MIN_ON_TIME: Final = 5  # Minimum valve on time (minutes)
+DEFAULT_VALVE_MIN_OFF_TIME: Final = 5  # Minimum valve off time (minutes)
 
 # Default values - Zone
 DEFAULT_WINDOW_DROP: Final = 5.0  # Setpoint reduction when window open (°C)
@@ -69,10 +79,6 @@ VALVE_MAINTENANCE_HOUR: Final = 14  # Hour of day to run maintenance (2 PM)
 # Storage
 STORAGE_KEY: Final = "heating_pid"
 STORAGE_VERSION: Final = 1
-
-# Services
-SERVICE_SET_ZONE_SETPOINT: Final = "set_zone_setpoint"
-SERVICE_RESET_WARMUP_FACTOR: Final = "reset_warmup_factor"
 
 # Attributes
 ATTR_DEMAND: Final = "demand"

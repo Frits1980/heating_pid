@@ -48,12 +48,20 @@ class PIDController:
 
     Attributes:
         kp: Proportional gain
-        ki: Integral gain
+        ki: Integral gain (calibrated for 30-second update intervals)
         kd: Derivative gain
         ke: Outdoor compensation gain
+        outdoor_reference_temp: Reference temperature for outdoor compensation (°C)
         integral: Accumulated integral value
         last_pv: Previous process variable for derivative calculation
         last_time: Timestamp of last update
+
+    Note on Ki tuning:
+        The integral term accumulates error * dt where dt is in seconds.
+        With the default 30-second coordinator update interval, the integral
+        accumulates approximately 30x per minute. The default Ki of 0.5 is
+        calibrated for this interval. If changing the update interval,
+        adjust Ki proportionally.
     """
 
     def __init__(
@@ -62,19 +70,22 @@ class PIDController:
         ki: float = 0.5,
         kd: float = 10.0,
         ke: float = 0.02,
+        outdoor_reference_temp: float = 15.0,
     ) -> None:
         """Initialize the PID controller.
 
         Args:
             kp: Proportional gain (default: 30.0)
-            ki: Integral gain (default: 0.5)
+            ki: Integral gain (default: 0.5), calibrated for 30-second updates
             kd: Derivative gain (default: 10.0)
             ke: Outdoor compensation gain (default: 0.02)
+            outdoor_reference_temp: Reference temp for outdoor compensation (default: 15.0°C)
         """
         self.kp = kp
         self.ki = ki
         self.kd = kd
         self.ke = ke
+        self.outdoor_reference_temp = outdoor_reference_temp
 
         # State variables
         self.integral: float = 0.0
@@ -143,15 +154,14 @@ class PIDController:
 
         # Apply outdoor compensation
         if outdoor_temp is not None and self.ke > 0:
-            # Reference temperature for compensation (typical: 15°C)
-            reference_temp = 15.0
-            if outdoor_temp < reference_temp:
-                outdoor_factor = reference_temp - outdoor_temp
+            if outdoor_temp < self.outdoor_reference_temp:
+                outdoor_factor = self.outdoor_reference_temp - outdoor_temp
                 compensation = 1.0 + self.ke * outdoor_factor
                 output *= compensation
                 _LOGGER.debug(
-                    "Outdoor compensation: %.2f°C -> factor %.3f",
+                    "Outdoor compensation: %.2f°C (ref: %.1f°C) -> factor %.3f",
                     outdoor_temp,
+                    self.outdoor_reference_temp,
                     compensation,
                 )
 

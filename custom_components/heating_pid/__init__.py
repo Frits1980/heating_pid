@@ -88,9 +88,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: EmsZoneMasterConfigEntr
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
     if unload_ok:
-        # Persist state before unloading
+        # Shutdown coordinator (cancels timers and persists state)
         coordinator: EmsZoneMasterCoordinator = entry.runtime_data
-        await coordinator.store.async_save()
+        await coordinator.async_shutdown()
         _LOGGER.info("EMS Zone Master unloaded: %s", entry.entry_id)
 
     return unload_ok

@@ -15,6 +15,10 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.config_entries import ConfigEntry
+
+if TYPE_CHECKING:
+    from homeassistant.helpers.device_registry import DeviceInfo
+
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -25,21 +29,27 @@ from .const import (
     CONF_MAX_EGRESS,
     CONF_MIN_EGRESS,
     CONF_MIN_IGNITION_LEVEL,
+    CONF_OUTDOOR_REFERENCE_TEMP,
     CONF_OUTDOOR_TEMP_ENTITY,
     CONF_RETURN_TEMP_ENTITY,
     CONF_SOLAR_DROP,
     CONF_SOLAR_POWER_ENTITY,
     CONF_SOLAR_THRESHOLD,
+    CONF_VALVE_MIN_OFF_TIME,
+    CONF_VALVE_MIN_ON_TIME,
+    CONF_ZONE_SOLAR_DROP,
     CONF_ZONES,
     COORDINATOR_UPDATE_INTERVAL,
+    DEFAULT_OUTDOOR_REFERENCE_TEMP,
+    DEFAULT_VALVE_MIN_OFF_TIME,
+    DEFAULT_VALVE_MIN_ON_TIME,
     DOMAIN,
+    INITIAL_WARMUP_GUESS,
     PERSISTENCE_INTERVAL,
+    VERSION,
 )
 from .pid import PIDController
 from .store import EmsZoneMasterStore
-
-if TYPE_CHECKING:
-    from .store import EmsZoneMasterStore
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -91,7 +101,8 @@ class ZoneState:
         self.pid = pid
         self.manual_setpoint: float | None = None
         self.window_open: bool = False
-        self.warmup_factor: float = 30.0  # Initial guess: 30 min/°C
+        self.warmup_factor: float = INITIAL_WARMUP_GUESS
+        self.solar_drop: float | None = None  # Zone-specific solar drop (None = use global)
 
         # Schedule and adaptive start
         self.schedule_reader: Any = None  # Set by coordinator if schedule configured
@@ -106,6 +117,10 @@ class ZoneState:
         # Valve maintenance
         self.last_valve_activity: datetime | None = None
         self.valve_maintenance_pending: bool = False
+
+        # Valve anti-cycling protection
+        self.valve_opened_at: datetime | None = None
+        self.valve_closed_at: datetime | None = None
 
 
 class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -156,6 +171,15 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._min_ignition_level: float = entry.data[CONF_MIN_IGNITION_LEVEL]
         self._solar_threshold: float = entry.data[CONF_SOLAR_THRESHOLD]
         self._solar_drop: float = entry.data[CONF_SOLAR_DROP]
+        self._outdoor_reference_temp: float = entry.data.get(
+            CONF_OUTDOOR_REFERENCE_TEMP, DEFAULT_OUTDOOR_REFERENCE_TEMP
+        )
+        self._valve_min_on_time: int = entry.data.get(
+            CONF_VALVE_MIN_ON_TIME, DEFAULT_VALVE_MIN_ON_TIME
+        )
+        self._valve_min_off_time: int = entry.data.get(
+            CONF_VALVE_MIN_OFF_TIME, DEFAULT_VALVE_MIN_OFF_TIME
+        )
 
         # Runtime state
         self._current_flow_temp: float | None = None
@@ -235,6 +259,7 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 ki=zone_config[CONF_KI],
                 kd=zone_config[CONF_KD],
                 ke=zone_config[CONF_KE],
+                outdoor_reference_temp=self._outdoor_reference_temp,
             )
 
             # Restore integral from store if available
@@ -267,6 +292,9 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     name,
                     stored_manual,
                 )
+
+            # Load zone-specific solar drop if configured
+            zone.solar_drop = zone_config.get(CONF_ZONE_SOLAR_DROP)
 
             # Create schedule reader if schedule entity is configured
             schedule_entity = zone_config.get(CONF_ZONE_SCHEDULE_ENTITY)
@@ -515,9 +543,11 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 (now - zone.last_valve_activity).days if zone.last_valve_activity else VALVE_MAINTENANCE_DAYS,
             )
 
-            # Perform the maintenance cycle
-            await self._perform_valve_maintenance(zone, VALVE_MAINTENANCE_DURATION)
-            zone.valve_maintenance_pending = False
+            # Run maintenance in background task to avoid blocking update cycle
+            self.hass.async_create_background_task(
+                self._perform_valve_maintenance(zone, VALVE_MAINTENANCE_DURATION),
+                f"valve_maintenance_{zone.name}",
+            )
 
     async def _perform_valve_maintenance(self, zone: ZoneState, duration: int) -> None:
         """Perform a maintenance cycle on a zone valve.
@@ -579,6 +609,9 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 zone.name,
                 err,
             )
+        finally:
+            # Reset pending flag when task completes (success or failure)
+            zone.valve_maintenance_pending = False
 
     def _update_zone_demands(self) -> None:
         """Update PID controllers and calculate demand for each zone.
@@ -680,6 +713,23 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "Zone %s: window open, reducing setpoint by %.1f°C",
                     zone.name,
                     DEFAULT_WINDOW_DROP,
+                )
+
+            # Apply solar limiting if solar power exceeds threshold
+            if (
+                self._solar_power is not None
+                and self._solar_power > self._solar_threshold
+            ):
+                # Use zone-specific solar drop if set, otherwise use global
+                solar_drop = (
+                    zone.solar_drop if zone.solar_drop is not None else self._solar_drop
+                )
+                effective_setpoint -= solar_drop
+                _LOGGER.debug(
+                    "Zone %s: solar limiting (%.0fW), reducing setpoint by %.1f°C",
+                    zone.name,
+                    self._solar_power,
+                    solar_drop,
                 )
 
             # Update PID controller
@@ -912,17 +962,46 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         is_on = current_state.state == "on"
+        now = datetime.now()
 
+        # Apply valve anti-cycling protection
         if should_open and not is_on:
+            # Check minimum off-time before opening
+            if zone.valve_closed_at and self._valve_min_off_time > 0:
+                time_since_close = (now - zone.valve_closed_at).total_seconds() / 60
+                if time_since_close < self._valve_min_off_time:
+                    _LOGGER.debug(
+                        "Valve %s: skipping open, only %.1f min since close (min: %d)",
+                        entity_id,
+                        time_since_close,
+                        self._valve_min_off_time,
+                    )
+                    return
+
             await self.hass.services.async_call(
                 "switch", "turn_on", {"entity_id": entity_id}, blocking=True
             )
-            zone.last_valve_activity = datetime.now()
+            zone.last_valve_activity = now
+            zone.valve_opened_at = now
             _LOGGER.debug("Opened valve: %s", entity_id)
+
         elif not should_open and is_on:
+            # Check minimum on-time before closing
+            if zone.valve_opened_at and self._valve_min_on_time > 0:
+                time_since_open = (now - zone.valve_opened_at).total_seconds() / 60
+                if time_since_open < self._valve_min_on_time:
+                    _LOGGER.debug(
+                        "Valve %s: skipping close, only %.1f min since open (min: %d)",
+                        entity_id,
+                        time_since_open,
+                        self._valve_min_on_time,
+                    )
+                    return
+
             await self.hass.services.async_call(
                 "switch", "turn_off", {"entity_id": entity_id}, blocking=True
             )
+            zone.valve_closed_at = now
             _LOGGER.debug("Closed valve: %s", entity_id)
 
     async def _control_climate_valve(
@@ -943,16 +1022,30 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         current_mode = current_state.state
+        now = datetime.now()
 
         if should_open:
+            # Check minimum off-time before opening
             if current_mode != "heat":
+                if zone.valve_closed_at and self._valve_min_off_time > 0:
+                    time_since_close = (now - zone.valve_closed_at).total_seconds() / 60
+                    if time_since_close < self._valve_min_off_time:
+                        _LOGGER.debug(
+                            "Climate %s: skipping heat, only %.1f min since off (min: %d)",
+                            entity_id,
+                            time_since_close,
+                            self._valve_min_off_time,
+                        )
+                        return
+
                 await self.hass.services.async_call(
                     "climate",
                     "set_hvac_mode",
                     {"entity_id": entity_id, "hvac_mode": "heat"},
                     blocking=True,
                 )
-                zone.last_valve_activity = datetime.now()
+                zone.last_valve_activity = now
+                zone.valve_opened_at = now
                 _LOGGER.debug("Set climate to heat: %s", entity_id)
 
             # Also set temperature to zone setpoint
@@ -963,12 +1056,25 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 blocking=True,
             )
         elif current_mode not in ("off", "unavailable"):
+            # Check minimum on-time before closing
+            if zone.valve_opened_at and self._valve_min_on_time > 0:
+                time_since_open = (now - zone.valve_opened_at).total_seconds() / 60
+                if time_since_open < self._valve_min_on_time:
+                    _LOGGER.debug(
+                        "Climate %s: skipping off, only %.1f min since heat (min: %d)",
+                        entity_id,
+                        time_since_open,
+                        self._valve_min_on_time,
+                    )
+                    return
+
             await self.hass.services.async_call(
                 "climate",
                 "set_hvac_mode",
                 {"entity_id": entity_id, "hvac_mode": "off"},
                 blocking=True,
             )
+            zone.valve_closed_at = now
             _LOGGER.debug("Set climate to off: %s", entity_id)
 
     async def _set_heater_temperature(self, temperature: float) -> None:
@@ -1031,7 +1137,7 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return self._cooldown_active
 
     @property
-    def device_info(self) -> dict[str, Any]:
+    def device_info(self) -> DeviceInfo:
         """Return device info for the main EMS Zone Master device."""
         from homeassistant.helpers.device_registry import DeviceInfo
 
@@ -1040,10 +1146,10 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             name="EMS Zone Master",
             manufacturer="EMS-ESP",
             model="Zone Master Controller",
-            sw_version="0.1.0",
+            sw_version=VERSION,
         )
 
-    def get_zone_device_info(self, zone_name: str) -> dict[str, Any]:
+    def get_zone_device_info(self, zone_name: str) -> DeviceInfo:
         """Return device info for a specific zone.
 
         Args:
