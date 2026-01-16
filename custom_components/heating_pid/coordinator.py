@@ -624,7 +624,7 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         4. Update PID with current temperature
         5. Track warmup for learning
         """
-        from .const import DEFAULT_WINDOW_DROP, SYNC_LOOK_AHEAD
+        from .const import DEFAULT_WINDOW_DROP
 
         now = dt_util.now()
 

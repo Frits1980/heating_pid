@@ -20,7 +20,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, MIN_EFFICIENT_DELTA_T
+from .const import MIN_EFFICIENT_DELTA_T
 
 if TYPE_CHECKING:
     from .coordinator import EmsZoneMasterCoordinator
