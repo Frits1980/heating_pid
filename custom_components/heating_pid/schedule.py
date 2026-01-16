@@ -26,6 +26,8 @@ import logging
 from datetime import datetime, time, timedelta
 from typing import TYPE_CHECKING, Any, NamedTuple
 
+from homeassistant.util import dt as dt_util
+
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
@@ -101,7 +103,7 @@ class ScheduleReader:
             Target temperature based on schedule (°C)
         """
         if now is None:
-            now = datetime.now()
+            now = dt_util.now()
 
         state = self._get_schedule_state()
         if state is None:
@@ -185,7 +187,7 @@ class ScheduleReader:
             Next schedule event, or None if no schedule configured
         """
         if now is None:
-            now = datetime.now()
+            now = dt_util.now()
 
         state = self._get_schedule_state()
         if state is None:
@@ -217,7 +219,7 @@ class ScheduleReader:
             Time until next active period starts, or None if no schedule
         """
         if now is None:
-            now = datetime.now()
+            now = dt_util.now()
 
         # Cache schedule state once before looping
         state = self._get_schedule_state()
@@ -230,7 +232,7 @@ class ScheduleReader:
             events = self._parse_schedule_events(check_date, state)
             for event in events:
                 if event.is_active:  # This is a "start heating" event
-                    event_datetime = datetime.combine(check_date.date(), event.time)
+                    event_datetime = datetime.combine(check_date.date(), event.time, tzinfo=dt_util.DEFAULT_TIME_ZONE)
                     if event_datetime > now:
                         return event_datetime - now
 
@@ -246,14 +248,14 @@ class ScheduleReader:
             Time until next event, or None if no schedule
         """
         if now is None:
-            now = datetime.now()
+            now = dt_util.now()
 
         next_event = self.get_next_event(now)
         if next_event is None:
             return None
 
         # Calculate time to event
-        event_datetime = datetime.combine(now.date(), next_event.time)
+        event_datetime = datetime.combine(now.date(), next_event.time, tzinfo=dt_util.DEFAULT_TIME_ZONE)
         if event_datetime <= now:
             # Event is tomorrow
             event_datetime += timedelta(days=1)
@@ -411,7 +413,7 @@ class ScheduleReader:
             True if currently in a scheduled block (not in default/off period)
         """
         if now is None:
-            now = datetime.now()
+            now = dt_util.now()
 
         state = self._get_schedule_state()
         if state is None:

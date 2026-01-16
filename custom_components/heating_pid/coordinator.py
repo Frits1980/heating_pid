@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_FLOW_TEMP_ENTITY,
@@ -438,7 +439,7 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         from .const import SYNC_LOOK_AHEAD
 
-        now = datetime.now()
+        now = dt_util.now()
         sync_window = timedelta(minutes=SYNC_LOOK_AHEAD)
 
         # Collect zones with upcoming starts and their required start times
@@ -515,7 +516,7 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             VALVE_MAINTENANCE_HOUR,
         )
 
-        now = datetime.now()
+        now = dt_util.now()
 
         # Only run maintenance during the designated hour
         if now.hour != VALVE_MAINTENANCE_HOUR:
@@ -600,7 +601,7 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
 
             # Update last activity time
-            zone.last_valve_activity = datetime.now()
+            zone.last_valve_activity = dt_util.now()
             _LOGGER.info("Zone %s: valve maintenance complete", zone.name)
 
         except Exception as err:
@@ -625,7 +626,7 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         from .const import DEFAULT_WINDOW_DROP, SYNC_LOOK_AHEAD
 
-        now = datetime.now()
+        now = dt_util.now()
 
         for zone in self.zones.values():
             # Skip if no temperature reading
@@ -962,7 +963,7 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         is_on = current_state.state == "on"
-        now = datetime.now()
+        now = dt_util.now()
 
         # Apply valve anti-cycling protection
         if should_open and not is_on:
@@ -1022,7 +1023,7 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         current_mode = current_state.state
-        now = datetime.now()
+        now = dt_util.now()
 
         if should_open:
             # Check minimum off-time before opening
