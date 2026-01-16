@@ -636,8 +636,6 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 continue
 
             # Determine effective setpoint (priority: manual > schedule > default)
-            previous_setpoint = zone.setpoint
-
             if zone.manual_setpoint is not None:
                 zone.setpoint = zone.manual_setpoint
                 zone.adaptive_start_active = False
@@ -691,17 +689,6 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 else:
                     zone.adaptive_start_active = False
                     zone.setpoint = scheduled_setpoint
-
-                # Clear manual setpoint when schedule changes
-                if (
-                    zone.manual_setpoint is not None
-                    and scheduled_setpoint != previous_setpoint
-                ):
-                    _LOGGER.info(
-                        "Zone %s: clearing manual setpoint due to schedule change",
-                        zone.name,
-                    )
-                    zone.manual_setpoint = None
             else:
                 zone.setpoint = zone.default_setpoint
                 zone.adaptive_start_active = False
