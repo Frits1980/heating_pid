@@ -27,7 +27,6 @@
           "max_egress": "Highest Water Temperature",
           "min_ignition_level": "Minimum Demand to Start",
           "solar_threshold": "Solar Power Limit",
-          "solar_drop": "Solar Temperature Reduction",
           "outdoor_reference_temp": "Outdoor Reference Temperature",
           "valve_min_on_time": "Valve Minimum On Time",
           "valve_min_off_time": "Valve Minimum Off Time"
@@ -37,7 +36,6 @@
           "max_egress": "Water temperature at full heating demand (e.g., 55°C)",
           "min_ignition_level": "Heating won't start until demand exceeds this percentage",
           "solar_threshold": "Reduce heating when solar production exceeds this (Watts)",
-          "solar_drop": "How much to lower water temperature when solar limit is reached",
           "outdoor_reference_temp": "Reference temperature for outdoor compensation (typically 15°C)",
           "valve_min_on_time": "Minimum time a valve stays open before it can close (minutes)",
           "valve_min_off_time": "Minimum time a valve stays closed before it can open (minutes)"
@@ -158,7 +156,6 @@
           "max_egress": "Highest Water Temperature",
           "min_ignition_level": "Minimum Demand to Start",
           "solar_threshold": "Solar Power Limit",
-          "solar_drop": "Solar Temperature Reduction",
           "outdoor_reference_temp": "Outdoor Reference Temperature",
           "valve_min_on_time": "Valve Minimum On Time",
           "valve_min_off_time": "Valve Minimum Off Time"
@@ -168,7 +165,6 @@
           "max_egress": "Water temperature at full heating demand",
           "min_ignition_level": "Heating won't start until demand exceeds this",
           "solar_threshold": "Reduce heating when solar exceeds this",
-          "solar_drop": "How much to lower temperature when solar limit is reached",
           "outdoor_reference_temp": "Reference temperature for outdoor compensation (typically 15°C)",
           "valve_min_on_time": "Minimum time a valve stays open before it can close (minutes)",
           "valve_min_off_time": "Minimum time a valve stays closed before it can open (minutes)"

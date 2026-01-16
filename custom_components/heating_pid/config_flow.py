@@ -36,7 +36,6 @@ from .const import (
     CONF_OUTDOOR_REFERENCE_TEMP,
     CONF_OUTDOOR_TEMP_ENTITY,
     CONF_RETURN_TEMP_ENTITY,
-    CONF_SOLAR_DROP,
     CONF_SOLAR_POWER_ENTITY,
     CONF_SOLAR_THRESHOLD,
     CONF_VALVE_MIN_OFF_TIME,
@@ -58,7 +57,6 @@ from .const import (
     DEFAULT_MIN_IGNITION_LEVEL,
     DEFAULT_OUTDOOR_REFERENCE_TEMP,
     DEFAULT_SETPOINT,
-    DEFAULT_SOLAR_DROP,
     DEFAULT_SOLAR_THRESHOLD,
     DEFAULT_VALVE_MIN_OFF_TIME,
     DEFAULT_VALVE_MIN_ON_TIME,
@@ -220,13 +218,6 @@ class EmsZoneMasterConfigFlow(ConfigFlow, domain=DOMAIN):
                 ): selector.NumberSelector(
                     selector.NumberSelectorConfig(
                         min=0, max=10000, step=100, unit_of_measurement="W"
-                    )
-                ),
-                vol.Required(
-                    CONF_SOLAR_DROP, default=DEFAULT_SOLAR_DROP
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0, max=10, step=0.5, unit_of_measurement="°C"
                     )
                 ),
                 vol.Required(
@@ -445,14 +436,6 @@ class EmsZoneMasterOptionsFlow(OptionsFlow):
                 ): selector.NumberSelector(
                     selector.NumberSelectorConfig(
                         min=0, max=10000, step=100, unit_of_measurement="W"
-                    )
-                ),
-                vol.Required(
-                    CONF_SOLAR_DROP,
-                    default=self.config_entry.data.get(CONF_SOLAR_DROP, DEFAULT_SOLAR_DROP),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0, max=10, step=0.5, unit_of_measurement="°C"
                     )
                 ),
                 vol.Required(

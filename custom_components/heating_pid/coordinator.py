@@ -171,7 +171,7 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._max_egress: float = entry.data[CONF_MAX_EGRESS]
         self._min_ignition_level: float = entry.data[CONF_MIN_IGNITION_LEVEL]
         self._solar_threshold: float = entry.data[CONF_SOLAR_THRESHOLD]
-        self._solar_drop: float = entry.data[CONF_SOLAR_DROP]
+        self._solar_drop: float = entry.data.get(CONF_SOLAR_DROP, 0.0)
         self._outdoor_reference_temp: float = entry.data.get(
             CONF_OUTDOOR_REFERENCE_TEMP, DEFAULT_OUTDOOR_REFERENCE_TEMP
         )
