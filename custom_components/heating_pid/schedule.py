@@ -428,27 +428,36 @@ class ScheduleReader:
         events.sort(key=lambda e: e.time)
         return events
 
-    def _parse_time(self, time_str: str) -> time | None:
-        """Parse a time string in HH:MM:SS or HH:MM format.
+    def _parse_time(self, time_value: str | time) -> time | None:
+        """Parse a time value (string or time object) into a time object.
 
         Args:
-            time_str: Time string to parse
+            time_value: Time string (HH:MM:SS or HH:MM) or time object
 
         Returns:
             time object or None if invalid
         """
+        # Already a time object - return as-is
+        if isinstance(time_value, time):
+            return time_value
+
+        # Handle string parsing
+        if not isinstance(time_value, str):
+            _LOGGER.warning("Invalid time type: %s (%s)", time_value, type(time_value).__name__)
+            return None
+
         try:
-            if len(time_str) == 8:  # HH:MM:SS
-                parts = time_str.split(":")
+            if len(time_value) == 8:  # HH:MM:SS
+                parts = time_value.split(":")
                 return time(int(parts[0]), int(parts[1]), int(parts[2]))
-            elif len(time_str) == 5:  # HH:MM
-                parts = time_str.split(":")
+            elif len(time_value) == 5:  # HH:MM
+                parts = time_value.split(":")
                 return time(int(parts[0]), int(parts[1]))
             else:
-                _LOGGER.warning("Invalid time format: %s", time_str)
+                _LOGGER.warning("Invalid time format: %s", time_value)
                 return None
         except (ValueError, IndexError) as err:
-            _LOGGER.warning("Failed to parse time '%s': %s", time_str, err)
+            _LOGGER.warning("Failed to parse time '%s': %s", time_value, err)
             return None
 
     def is_schedule_active(self, now: datetime | None = None) -> bool:
