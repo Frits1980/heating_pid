@@ -23,6 +23,7 @@ from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from .const import (
     ATTR_DEMAND,
@@ -199,6 +200,13 @@ class EmsZoneClimate(CoordinatorEntity["EmsZoneMasterCoordinator"], ClimateEntit
         # Set manual setpoint
         self._zone.manual_setpoint = temperature
         self._zone.setpoint = temperature
+
+        # Store current schedule state for expiration tracking
+        if self._zone.schedule_reader is not None:
+            now = dt_util.now()
+            self._zone.manual_setpoint_schedule_state = self._zone.schedule_reader.is_schedule_active(now)
+        else:
+            self._zone.manual_setpoint_schedule_state = None
 
         # Request coordinator update
         await self.coordinator.async_request_refresh()

@@ -105,6 +105,7 @@ class ZoneState:
         self.demand: float = 0.0
         self.pid = pid
         self.manual_setpoint: float | None = None
+        self.manual_setpoint_schedule_state: bool | None = None  # Schedule state when manual was set
         self.window_open: bool = False
         self.warmup_factor: float = INITIAL_WARMUP_GUESS
         self.solar_drop: float | None = None  # Zone-specific solar drop (None = use global)
@@ -653,6 +654,19 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 _LOGGER.debug("Skipping zone %s: no temperature reading", zone.name)
                 zone.demand = 0.0
                 continue
+
+            # Check if manual setpoint should expire (schedule transitioned)
+            if zone.manual_setpoint is not None and zone.schedule_reader is not None:
+                current_schedule_state = zone.schedule_reader.is_schedule_active(now)
+                if zone.manual_setpoint_schedule_state is not None:
+                    if current_schedule_state != zone.manual_setpoint_schedule_state:
+                        # Schedule transitioned - clear manual override
+                        _LOGGER.info(
+                            "Zone %s: clearing manual setpoint (schedule transitioned)",
+                            zone.name,
+                        )
+                        zone.manual_setpoint = None
+                        zone.manual_setpoint_schedule_state = None
 
             # Determine effective setpoint (priority: manual > schedule > default)
             if zone.manual_setpoint is not None:
