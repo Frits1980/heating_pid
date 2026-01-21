@@ -168,8 +168,8 @@ async def _handle_force_valve_maintenance(
             zone.valve_maintenance_pending = True
             _LOGGER.info("Forced valve maintenance for zone: %s", zone_name)
 
-            # Trigger maintenance cycle with default duration
-            await coordinator._perform_valve_maintenance(zone, VALVE_MAINTENANCE_DURATION)
+            # Trigger maintenance cycle
+            await coordinator._perform_valve_maintenance(zone)
             return {}
 
     _LOGGER.error("Zone not found: %s", zone_name)

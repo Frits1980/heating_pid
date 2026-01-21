@@ -76,8 +76,12 @@ from .const import (
     VALVE_MAINTENANCE_HOUR,
     VERSION,
 )
+from .heater_controller import HeaterController
 from .pid import PIDController
+from .state_debouncer import StateDebouncer
 from .store import EmsZoneMasterStore
+from .valve_manager import ValveManager
+from .zone_logic import ZoneLogic
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -243,8 +247,30 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._first_block_start_time: datetime | None = None
         self._last_quiet_mode_check_date: datetime | None = None
 
+        # Initialize controller and manager modules
+        self._heater_controller = HeaterController(
+            hass,
+            self._heater_entity_id,
+            self._min_egress,
+            self._max_egress,
+            self._min_ignition_level,
+            self._quiet_mode_max_flow,
+            self._quiet_mode_ramp_minutes,
+        )
+        self._valve_manager = ValveManager(
+            hass,
+            self._valve_min_on_time,
+            self._valve_min_off_time,
+        )
+
+        # Initialize state debouncer for event-driven updates
+        self._state_debouncer = StateDebouncer(hass)
+
         # Initialize zones from config
         self._init_zones()
+
+        # Set up event-driven tracking for window sensors
+        self._setup_window_tracking()
 
         # Set up periodic persistence
         self._unsub_persistence = async_track_time_interval(
@@ -255,6 +281,9 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_shutdown(self) -> None:
         """Shutdown the coordinator and clean up resources."""
+        # Shutdown state debouncer (cancels event listeners)
+        self._state_debouncer.shutdown()
+
         # Cancel persistence timer
         if self._unsub_persistence:
             self._unsub_persistence()
@@ -381,6 +410,84 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
 
             self.zones[name] = zone
+
+    def _setup_window_tracking(self) -> None:
+        """Set up event-driven tracking for window sensors.
+
+        Window sensors are tracked with a 30-second debounce to prevent
+        rapid state toggling from causing excessive updates.
+        """
+        for zone in self.zones.values():
+            if zone.window_entity_id:
+                self._state_debouncer.track_entity(
+                    zone.window_entity_id,
+                    delay_seconds=30.0,
+                    on_confirmed=lambda state, z=zone: self._on_window_change(z, state),
+                )
+
+    async def _on_window_change(self, zone: ZoneState, state: str) -> None:
+        """Handle debounced window state change.
+
+        Args:
+            zone: Zone whose window changed
+            state: New window state ("on" = open, other = closed)
+        """
+        is_open = state == "on"
+        if zone.window_open != is_open:
+            zone.window_open = is_open
+            _LOGGER.info(
+                "Zone %s: window state changed to %s",
+                zone.name,
+                "open" if is_open else "closed",
+            )
+            # Trigger a partial update for this zone
+            await self._update_single_zone(zone)
+
+    async def _update_single_zone(self, zone: ZoneState) -> None:
+        """Perform a partial update for a single zone.
+
+        This is called when an event-driven state change occurs (e.g., window opens).
+        It updates only the affected zone without running the full update cycle.
+
+        Args:
+            zone: Zone to update
+        """
+        # Skip if zone is disabled
+        if zone.disabled:
+            return
+
+        # Skip if no temperature reading
+        if zone.current_temp is None:
+            return
+
+        # Update demand for this zone using current time
+        now = dt_util.now()
+        dt = (
+            (now - self._last_update).total_seconds()
+            if self._last_update is not None
+            else COORDINATOR_UPDATE_INTERVAL
+        )
+
+        # Apply window drop if needed
+        effective_setpoint = zone.setpoint
+        if zone.window_open:
+            effective_setpoint -= self._solar_drop
+
+        # Update PID
+        output = zone.pid.update(
+            process_variable=zone.current_temp,
+            setpoint=effective_setpoint,
+            outdoor_temp=self._outdoor_temp,
+            dt=dt,
+        )
+        zone.demand = max(0.0, min(100.0, output))
+
+        _LOGGER.debug(
+            "Zone %s: event-driven update, demand=%.1f%%, setpoint=%.1f°C",
+            zone.name,
+            zone.demand,
+            zone.setpoint,
+        )
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from sensors and update control outputs.
@@ -627,86 +734,47 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         now = dt_util.now()
 
-        # Only run maintenance during the designated hour
-        if now.hour != VALVE_MAINTENANCE_HOUR:
-            return
-
-        maintenance_threshold = timedelta(days=VALVE_MAINTENANCE_DAYS)
-
         for zone in self.zones.values():
-            # Skip if valve was recently active
-            if zone.last_valve_activity is not None:
-                inactive_time = now - zone.last_valve_activity
-                if inactive_time < maintenance_threshold:
-                    zone.valve_maintenance_pending = False
-                    continue
+            # Check if maintenance is needed using ValveManager
+            if self._valve_manager.check_maintenance_needed(
+                zone.last_valve_activity,
+                zone.valve_maintenance_pending,
+                now,
+            ):
+                # Schedule maintenance for this zone
+                zone.valve_maintenance_pending = True
+                _LOGGER.info(
+                    "Zone %s: scheduling valve maintenance (inactive for %d days)",
+                    zone.name,
+                    (now - zone.last_valve_activity).days if zone.last_valve_activity else VALVE_MAINTENANCE_DAYS,
+                )
 
-            # Check if maintenance is already pending (we're in the process)
-            if zone.valve_maintenance_pending:
-                continue
+                # Run maintenance in background task to avoid blocking update cycle
+                self.hass.async_create_background_task(
+                    self._perform_valve_maintenance(zone),
+                    f"valve_maintenance_{zone.name}",
+                )
 
-            # Schedule maintenance for this zone
-            zone.valve_maintenance_pending = True
-            _LOGGER.info(
-                "Zone %s: scheduling valve maintenance (inactive for %d days)",
-                zone.name,
-                (now - zone.last_valve_activity).days if zone.last_valve_activity else VALVE_MAINTENANCE_DAYS,
-            )
-
-            # Run maintenance in background task to avoid blocking update cycle
-            self.hass.async_create_background_task(
-                self._perform_valve_maintenance(zone, VALVE_MAINTENANCE_DURATION),
-                f"valve_maintenance_{zone.name}",
-            )
-
-    async def _perform_valve_maintenance(self, zone: ZoneState, duration: int) -> None:
+    async def _perform_valve_maintenance(self, zone: ZoneState) -> None:
         """Perform a maintenance cycle on a zone valve.
 
         Opens the valve briefly then closes it to prevent seizing.
 
         Args:
             zone: Zone to maintain
-            duration: Duration in seconds to keep valve open
         """
-        entity_id = zone.valve_entity_id
-        domain = entity_id.split(".")[0]
-
         _LOGGER.debug(
             "Zone %s: performing valve maintenance cycle (%d seconds)",
             zone.name,
-            duration,
+            VALVE_MAINTENANCE_DURATION,
         )
 
         try:
-            if domain == "switch":
-                # Open valve
-                await self._safe_service_call(
-                    "switch", "turn_on", {"entity_id": entity_id}
-                )
-                # Wait
-                await asyncio.sleep(duration)
-                # Close valve
-                await self._safe_service_call(
-                    "switch", "turn_off", {"entity_id": entity_id}
-                )
-            elif domain == "climate":
-                # Set to heat mode
-                await self._safe_service_call(
-                    "climate",
-                    "set_hvac_mode",
-                    {"entity_id": entity_id, "hvac_mode": "heat"},
-                )
-                # Wait
-                await asyncio.sleep(duration)
-                # Turn off
-                await self._safe_service_call(
-                    "climate",
-                    "set_hvac_mode",
-                    {"entity_id": entity_id, "hvac_mode": "off"},
-                )
-
-            # Update last activity time
-            zone.last_valve_activity = dt_util.now()
+            # Use ValveManager to perform maintenance
+            zone.last_valve_activity = await self._valve_manager.perform_maintenance(
+                zone.valve_entity_id,
+                VALVE_MAINTENANCE_DURATION,
+            )
             _LOGGER.info("Zone %s: valve maintenance complete", zone.name)
 
         except Exception as err:
@@ -962,60 +1030,25 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         else:
             self._max_demand = 0.0
 
-        # Check cooldown efficiency (delta-T too low = inefficient operation)
-        # Only check when:
-        # 1. We were actively commanding heat in the previous cycle
-        # 2. Flow temp is above min_egress (boiler responded)
-        # This prevents false cooldown triggers when starting up with warm pipes
-        if self._current_flow_temp is not None and self._current_return_temp is not None:
-            delta_t = self._current_flow_temp - self._current_return_temp
-            boiler_is_responding = self._current_flow_temp >= self._min_egress
-
-            if (
-                self._heater_was_active
-                and boiler_is_responding
-                and delta_t < MIN_EFFICIENT_DELTA_T
-                and self._max_demand > 0
-            ):
-                # Delta-T too low while actively heating, enter cooldown mode
-                if not self._cooldown_active:
-                    _LOGGER.info(
-                        "Entering cooldown mode: delta-T=%.1f°C < %.1f°C threshold",
-                        delta_t,
-                        MIN_EFFICIENT_DELTA_T,
-                    )
-                self._cooldown_active = True
-            else:
-                if self._cooldown_active:
-                    _LOGGER.info("Exiting cooldown mode: delta-T=%.1f°C", delta_t)
-                self._cooldown_active = False
-
-        # Calculate target flow temperature from demand curve
-        # Formula: target = min + (demand / 100) × (effective_max - min)
-        # effective_max may be reduced during quiet mode ramp
-        if self._max_demand < self._min_ignition_level or self._cooldown_active:
-            # Below ignition threshold or in cooldown - turn off
-            self._target_flow_temp = 0.0
-        else:
-            now = dt_util.now()
-            effective_max = self._get_effective_max_flow(now)
-            self._target_flow_temp = self._min_egress + (
-                self._max_demand / 100.0
-            ) * (effective_max - self._min_egress)
-
-        _LOGGER.debug(
-            "Heater control: demand=%.1f%%, target=%.1f°C, cooldown=%s, quiet_mode=%s",
+        # Calculate target flow temperature using HeaterController
+        now = dt_util.now()
+        target_temp, cooldown_active = self._heater_controller.calculate_target_flow_temp(
             self._max_demand,
-            self._target_flow_temp,
-            self._cooldown_active,
+            self._current_flow_temp,
+            self._current_return_temp,
             self._quiet_mode_active,
+            self._first_block_start_time,
+            now,
         )
 
-        # Apply to heater entity
-        await self._set_heater_temperature(self._target_flow_temp)
+        self._target_flow_temp = target_temp
+        self._cooldown_active = cooldown_active
 
-        # Track heater state for next cycle's cooldown check
-        self._heater_was_active = self._target_flow_temp > 0
+        # Apply to heater entity
+        await self._heater_controller.set_flow_temperature(self._target_flow_temp)
+
+        # Sync heater state from controller
+        self._heater_was_active = self._heater_controller.heater_was_active
 
         # Control zone valves based on demand
         await self._update_valve_states()
@@ -1029,198 +1062,17 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for zone in self.zones.values():
             should_open = zone.demand > 0 and not self._cooldown_active
 
-            # Determine entity type and control accordingly
-            entity_id = zone.valve_entity_id
-            state = self.hass.states.get(entity_id)
-
-            if state is None:
-                _LOGGER.warning("Valve entity not found: %s", entity_id)
-                continue
-
-            domain = entity_id.split(".")[0]
-
-            if domain == "switch":
-                await self._control_switch_valve(entity_id, zone, should_open)
-            elif domain == "climate":
-                await self._control_climate_valve(entity_id, zone, should_open)
-            else:
-                _LOGGER.warning(
-                    "Unsupported valve entity domain: %s for %s",
-                    domain,
-                    entity_id,
+            # Use ValveManager to control the valve
+            zone.valve_opened_at, zone.valve_closed_at, zone.last_valve_activity = (
+                await self._valve_manager.set_valve_state(
+                    zone.valve_entity_id,
+                    zone.valve_opened_at,
+                    zone.valve_closed_at,
+                    zone.setpoint,
+                    should_open,
+                    self._cooldown_active,
                 )
-
-    async def _control_switch_valve(
-        self, entity_id: str, zone: ZoneState, should_open: bool
-    ) -> None:
-        """Control a switch-type valve entity.
-
-        Args:
-            entity_id: Switch entity ID
-            zone: Zone state for tracking activity
-            should_open: True to turn on (open), False to turn off (close)
-        """
-        current_state = self.hass.states.get(entity_id)
-        if current_state is None:
-            return
-
-        try:
-            is_on = current_state.state == "on"
-            now = dt_util.now()
-
-            # Apply valve anti-cycling protection
-            if should_open and not is_on:
-                # Check minimum off-time before opening
-                if zone.valve_closed_at and self._valve_min_off_time > 0:
-                    time_since_close = (now - zone.valve_closed_at).total_seconds() / 60
-                    if time_since_close < self._valve_min_off_time:
-                        _LOGGER.debug(
-                            "Valve %s: skipping open, only %.1f min since close (min: %d)",
-                            entity_id,
-                            time_since_close,
-                            self._valve_min_off_time,
-                        )
-                        return
-
-                await self._safe_service_call(
-                    "switch", "turn_on", {"entity_id": entity_id}
-                )
-                zone.last_valve_activity = now
-                zone.valve_opened_at = now
-                _LOGGER.debug("Opened valve: %s", entity_id)
-
-            elif not should_open and is_on:
-                # Check minimum on-time before closing
-                if zone.valve_opened_at and self._valve_min_on_time > 0:
-                    time_since_open = (now - zone.valve_opened_at).total_seconds() / 60
-                    if time_since_open < self._valve_min_on_time:
-                        _LOGGER.debug(
-                            "Valve %s: skipping close, only %.1f min since open (min: %d)",
-                            entity_id,
-                            time_since_open,
-                            self._valve_min_on_time,
-                        )
-                        return
-
-                await self._safe_service_call(
-                    "switch", "turn_off", {"entity_id": entity_id}
-                )
-                zone.valve_closed_at = now
-                _LOGGER.debug("Closed valve: %s", entity_id)
-        except Exception as err:
-            _LOGGER.error("Failed to control switch valve %s: %s", entity_id, err)
-
-    async def _control_climate_valve(
-        self, entity_id: str, zone: ZoneState, should_open: bool
-    ) -> None:
-        """Control a climate-type valve entity (e.g., TRV).
-
-        For climate entities, we set HVAC mode to heat/off and
-        optionally set the target temperature.
-
-        Args:
-            entity_id: Climate entity ID
-            zone: Zone state with setpoint info
-            should_open: True to enable heating, False to turn off
-        """
-        current_state = self.hass.states.get(entity_id)
-        if current_state is None:
-            return
-
-        try:
-            current_mode = current_state.state
-            now = dt_util.now()
-
-            if should_open:
-                # Check minimum off-time before opening
-                if current_mode != "heat":
-                    if zone.valve_closed_at and self._valve_min_off_time > 0:
-                        time_since_close = (now - zone.valve_closed_at).total_seconds() / 60
-                        if time_since_close < self._valve_min_off_time:
-                            _LOGGER.debug(
-                                "Climate %s: skipping heat, only %.1f min since off (min: %d)",
-                                entity_id,
-                                time_since_close,
-                                self._valve_min_off_time,
-                            )
-                            return
-
-                    await self._safe_service_call(
-                        "climate",
-                        "set_hvac_mode",
-                        {"entity_id": entity_id, "hvac_mode": "heat"},
-                    )
-                    zone.last_valve_activity = now
-                    zone.valve_opened_at = now
-                    _LOGGER.debug("Set climate to heat: %s", entity_id)
-
-                # Also set temperature to zone setpoint
-                await self._safe_service_call(
-                    "climate",
-                    "set_temperature",
-                    {"entity_id": entity_id, "temperature": zone.setpoint},
-                )
-            elif current_mode not in ("off", "unavailable"):
-                # Check minimum on-time before closing
-                if zone.valve_opened_at and self._valve_min_on_time > 0:
-                    time_since_open = (now - zone.valve_opened_at).total_seconds() / 60
-                    if time_since_open < self._valve_min_on_time:
-                        _LOGGER.debug(
-                            "Climate %s: skipping off, only %.1f min since heat (min: %d)",
-                            entity_id,
-                            time_since_open,
-                            self._valve_min_on_time,
-                        )
-                        return
-
-                await self._safe_service_call(
-                    "climate",
-                    "set_hvac_mode",
-                    {"entity_id": entity_id, "hvac_mode": "off"},
-                )
-                zone.valve_closed_at = now
-                _LOGGER.debug("Set climate to off: %s", entity_id)
-        except Exception as err:
-            _LOGGER.error("Failed to control climate valve %s: %s", entity_id, err)
-
-    async def _safe_service_call(
-        self, domain: str, service: str, data: dict[str, Any]
-    ) -> bool:
-        """Call a service with error handling.
-
-        Args:
-            domain: Service domain (e.g., "switch", "climate", "number")
-            service: Service name (e.g., "turn_on", "set_temperature")
-            data: Service data parameters
-
-        Returns:
-            True if service call succeeded, False otherwise
-        """
-        try:
-            await self.hass.services.async_call(domain, service, data, blocking=True)
-            return True
-        except Exception as err:
-            entity_id = data.get("entity_id", "unknown")
-            _LOGGER.error(
-                "Service call %s.%s failed for %s: %s", domain, service, entity_id, err
             )
-            return False
-
-    async def _set_heater_temperature(self, temperature: float) -> None:
-        """Set the heater flow temperature setpoint.
-
-        Args:
-            temperature: Target flow temperature in °C (0 to turn off)
-        """
-        await self._safe_service_call(
-            "number",
-            "set_value",
-            {
-                "entity_id": self._heater_entity_id,
-                "value": temperature,
-            },
-        )
-        _LOGGER.debug("Set heater to %.1f°C", temperature)
 
     def _build_state_dict(self) -> dict[str, Any]:
         """Build state dictionary for coordinator data.
@@ -1330,33 +1182,6 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         else:
             # Not in first block (second block started or no schedule active)
             self._quiet_mode_active = False
-
-    def _get_effective_max_flow(self, now: datetime) -> float:
-        """Get the effective maximum flow temperature, accounting for quiet mode.
-
-        Returns:
-            Maximum flow temperature, possibly reduced for quiet mode ramp
-        """
-        if not self._quiet_mode_active or self._first_block_start_time is None:
-            return self._max_egress
-
-        # Calculate ramp progress (0.0 to 1.0)
-        minutes_since_start = (now - self._first_block_start_time).total_seconds() / 60
-        ramp_progress = min(1.0, minutes_since_start / self._quiet_mode_ramp_minutes)
-
-        # Clamp quiet mode max to at least min_egress
-        quiet_max = max(self._quiet_mode_max_flow, self._min_egress)
-
-        # Linear interpolation from quiet_max to max_egress
-        effective_max = quiet_max + ramp_progress * (self._max_egress - quiet_max)
-
-        _LOGGER.debug(
-            "Quiet mode: %.0f%% ramp progress, effective max flow: %.1f°C",
-            ramp_progress * 100,
-            effective_max,
-        )
-
-        return effective_max
 
     @property
     def device_info(self) -> DeviceInfo:
