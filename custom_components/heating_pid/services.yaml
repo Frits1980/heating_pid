@@ -1,0 +1,47 @@
+reset_zone_learning:
+  name: Reset Zone Learning
+  description: Reset the learned warmup factor for a zone to the initial guess
+  fields:
+    zone_name:
+      name: Zone Name
+      description: Name of zone to reset (empty for all zones)
+      required: false
+      example: "Living Room"
+      selector:
+        text:
+
+reset_zone_pid:
+  name: Reset Zone PID
+  description: Reset the PID integral term to zero
+  fields:
+    zone_name:
+      name: Zone Name
+      description: Name of zone to reset (empty for all zones)
+      required: false
+      example: "Living Room"
+      selector:
+        text:
+
+force_valve_maintenance:
+  name: Force Valve Maintenance
+  description: Trigger immediate valve maintenance cycle
+  fields:
+    zone_name:
+      name: Zone Name
+      description: Name of zone to perform maintenance on
+      required: true
+      example: "Living Room"
+      selector:
+        text:
+
+clear_manual_setpoint:
+  name: Clear Manual Setpoint
+  description: Clear manual temperature override and return to schedule control
+  fields:
+    zone_name:
+      name: Zone Name
+      description: Name of zone (empty for all zones)
+      required: false
+      example: "Living Room"
+      selector:
+        text:

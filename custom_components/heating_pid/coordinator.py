@@ -10,14 +10,16 @@ The coordinator is the central hub that:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.helpers.device_registry import DeviceInfo
 
 if TYPE_CHECKING:
-    from homeassistant.helpers.device_registry import DeviceInfo
+    from .schedule import ScheduleReader
 
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.event import async_track_time_interval
@@ -25,13 +27,19 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    CONF_AWAY_DELAY,
     CONF_FLOW_TEMP_ENTITY,
     CONF_HEATER_ENTITY,
+    CONF_KD,
+    CONF_KE,
+    CONF_KI,
+    CONF_KP,
     CONF_MAX_EGRESS,
     CONF_MIN_EGRESS,
     CONF_MIN_IGNITION_LEVEL,
     CONF_OUTDOOR_REFERENCE_TEMP,
     CONF_OUTDOOR_TEMP_ENTITY,
+    CONF_PRESENCE_ENTITY,
     CONF_QUIET_MODE_MAX_FLOW,
     CONF_QUIET_MODE_RAMP_MINUTES,
     CONF_RETURN_TEMP_ENTITY,
@@ -40,17 +48,32 @@ from .const import (
     CONF_SOLAR_THRESHOLD,
     CONF_VALVE_MIN_OFF_TIME,
     CONF_VALVE_MIN_ON_TIME,
+    CONF_ZONE_AWAY_TEMP,
+    CONF_ZONE_DEFAULT_SETPOINT,
+    CONF_ZONE_NAME,
+    CONF_ZONE_SCHEDULE_ENTITY,
     CONF_ZONE_SOLAR_DROP,
+    CONF_ZONE_TEMP_ENTITY,
+    CONF_ZONE_VALVE_ENTITY,
+    CONF_ZONE_WINDOW_ENTITY,
     CONF_ZONES,
     COORDINATOR_UPDATE_INTERVAL,
+    DEFAULT_AWAY_DELAY,
+    DEFAULT_AWAY_TEMP,
     DEFAULT_OUTDOOR_REFERENCE_TEMP,
     DEFAULT_QUIET_MODE_MAX_FLOW,
     DEFAULT_QUIET_MODE_RAMP_MINUTES,
     DEFAULT_VALVE_MIN_OFF_TIME,
     DEFAULT_VALVE_MIN_ON_TIME,
+    DEFAULT_WINDOW_DROP,
     DOMAIN,
     INITIAL_WARMUP_GUESS,
+    MIN_EFFICIENT_DELTA_T,
     PERSISTENCE_INTERVAL,
+    SYNC_LOOK_AHEAD,
+    VALVE_MAINTENANCE_DAYS,
+    VALVE_MAINTENANCE_DURATION,
+    VALVE_MAINTENANCE_HOUR,
     VERSION,
 )
 from .pid import PIDController
@@ -70,6 +93,7 @@ class ZoneState:
         schedule_entity_id: Optional entity ID of schedule helper
         setpoint: Current target temperature
         default_setpoint: Configured default temperature
+        away_temp: Temperature when away mode is active
         current_temp: Last read temperature from sensor
         demand: Current calculated demand (0-100%)
         pid: PID controller instance for this zone
@@ -101,17 +125,20 @@ class ZoneState:
         self.schedule_entity_id = schedule_entity_id
         self.default_setpoint = default_setpoint
         self.setpoint = default_setpoint
+        self.away_temp: float = DEFAULT_AWAY_TEMP
         self.current_temp: float | None = None
         self.demand: float = 0.0
         self.pid = pid
         self.manual_setpoint: float | None = None
         self.manual_setpoint_schedule_state: bool | None = None  # Schedule state when manual was set
         self.window_open: bool = False
+        self.disabled: bool = False
+        self.disabled_reason: str | None = None
         self.warmup_factor: float = INITIAL_WARMUP_GUESS
         self.solar_drop: float | None = None  # Zone-specific solar drop (None = use global)
 
         # Schedule and adaptive start
-        self.schedule_reader: Any = None  # Set by coordinator if schedule configured
+        self.schedule_reader: ScheduleReader | None = None  # Set by coordinator if schedule configured
         self.adaptive_start_active: bool = False
         self.sync_forced: bool = False  # Forced to start early due to synchronization
 
@@ -203,6 +230,13 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._cooldown_active: bool = False
         self._heater_was_active: bool = False  # Track if heater was actively commanded
         self._unsub_persistence: CALLBACK_TYPE | None = None
+        self._last_update: datetime | None = None  # Track time for PID dt calculation
+
+        # Away mode state
+        self._presence_entity_id: str | None = entry.data.get(CONF_PRESENCE_ENTITY)
+        self._away_delay: int = entry.data.get(CONF_AWAY_DELAY, DEFAULT_AWAY_DELAY)
+        self._away_mode_active: bool = False
+        self._presence_lost_at: datetime | None = None  # When presence went "off"
 
         # Quiet mode state
         self._quiet_mode_active: bool = False
@@ -231,7 +265,7 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         _LOGGER.debug("Coordinator shutdown complete")
 
     @callback
-    def _async_persist_state(self, _now: Any) -> None:
+    def _async_persist_state(self, _now: datetime) -> None:
         """Persist current state to storage (scheduled callback).
 
         Saves PID integrals and warmup factors for all zones.
@@ -254,19 +288,6 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Creates ZoneState objects for each configured zone,
         restoring learned warmup factors from the store.
         """
-        from .const import (
-            CONF_KD,
-            CONF_KE,
-            CONF_KI,
-            CONF_KP,
-            CONF_ZONE_DEFAULT_SETPOINT,
-            CONF_ZONE_NAME,
-            CONF_ZONE_SCHEDULE_ENTITY,
-            CONF_ZONE_TEMP_ENTITY,
-            CONF_ZONE_VALVE_ENTITY,
-            CONF_ZONE_WINDOW_ENTITY,
-        )
-
         for zone_config in self.entry.data.get(CONF_ZONES, []):
             name = zone_config[CONF_ZONE_NAME]
 
@@ -297,6 +318,22 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     )
                     pid.integral = 0.0
 
+            # Restore tuned PID gains from store if available
+            stored_gains = self.store.get_pid_gains(name)
+            if stored_gains is not None:
+                pid.kp = stored_gains["kp"]
+                pid.ki = stored_gains["ki"]
+                pid.kd = stored_gains["kd"]
+                pid.ke = stored_gains["ke"]
+                _LOGGER.info(
+                    "Zone %s: restored PID gains Kp=%.1f, Ki=%.2f, Kd=%.1f, Ke=%.3f",
+                    name,
+                    pid.kp,
+                    pid.ki,
+                    pid.kd,
+                    pid.ke,
+                )
+
             zone = ZoneState(
                 name=name,
                 temp_entity_id=zone_config[CONF_ZONE_TEMP_ENTITY],
@@ -326,11 +363,12 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Load zone-specific solar drop if configured
             zone.solar_drop = zone_config.get(CONF_ZONE_SOLAR_DROP)
 
+            # Load away temperature if configured
+            zone.away_temp = zone_config.get(CONF_ZONE_AWAY_TEMP, DEFAULT_AWAY_TEMP)
+
             # Create schedule reader if schedule entity is configured
             schedule_entity = zone_config.get(CONF_ZONE_SCHEDULE_ENTITY)
             if schedule_entity:
-                from .schedule import ScheduleReader
-
                 zone.schedule_reader = ScheduleReader(
                     hass=self.hass,
                     entity_id=schedule_entity,
@@ -356,17 +394,24 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             UpdateFailed: If critical sensors cannot be read
         """
         try:
+            # Track time for PID dt calculation
+            now = dt_util.now()
+            dt = (now - self._last_update).total_seconds() if self._last_update else 30.0
+            self._last_update = now
+
             # Phase 3: Read all sensor states
             await self._read_sensor_states()
 
             # Phase 7: Apply smart synchronization
             self._apply_synchronization()
 
+            # Phase 3.5: Update away mode state
+            self._update_away_mode(now)
+
             # Phase 4: Update PID controllers and calculate demand
-            self._update_zone_demands()
+            self._update_zone_demands(dt)
 
             # Phase 4.5: Update quiet mode state
-            now = dt_util.now()
             await self._update_quiet_mode_state(now)
 
             # Phase 5: Calculate target flow temperature and control heater
@@ -470,8 +515,6 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         3. If multiple starts fall within the window, use the earliest
         4. Set sync_forced flag on zones that are started early
         """
-        from .const import SYNC_LOOK_AHEAD
-
         now = dt_util.now()
         sync_window = timedelta(minutes=SYNC_LOOK_AHEAD)
 
@@ -536,6 +579,45 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             (start_time - earliest_start).total_seconds() / 60,
                         )
 
+    def _update_away_mode(self, now: datetime) -> None:
+        """Update away mode state based on presence entity.
+
+        Args:
+            now: Current datetime
+
+        Away mode activates when:
+        1. Presence entity is configured
+        2. Presence is "away" for the configured delay
+        3. Presence returns immediately (instant exit from away mode)
+        """
+        if not self._presence_entity_id:
+            self._away_mode_active = False
+            return
+
+        state = self.hass.states.get(self._presence_entity_id)
+        if state is None:
+            return
+
+        # Check if "home" (on/home) or "away" (off/not_home/not_home)
+        is_home = state.state in ("on", "home")
+
+        if is_home:
+            # Instant return - clear away mode immediately
+            if self._away_mode_active:
+                _LOGGER.info("Presence detected - exiting away mode")
+            self._away_mode_active = False
+            self._presence_lost_at = None
+        else:
+            # Away - check delay
+            if self._presence_lost_at is None:
+                self._presence_lost_at = now
+
+            minutes_away = (now - self._presence_lost_at).total_seconds() / 60
+
+            if minutes_away >= self._away_delay and not self._away_mode_active:
+                _LOGGER.info("Away for %.0f min - entering away mode", minutes_away)
+                self._away_mode_active = True
+
     async def _check_valve_maintenance(self) -> None:
         """Check and perform valve maintenance cycling.
 
@@ -543,12 +625,6 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         cycled briefly to prevent seizing. This runs at a specific
         hour of the day to minimize disruption.
         """
-        from .const import (
-            VALVE_MAINTENANCE_DAYS,
-            VALVE_MAINTENANCE_DURATION,
-            VALVE_MAINTENANCE_HOUR,
-        )
-
         now = dt_util.now()
 
         # Only run maintenance during the designated hour
@@ -592,8 +668,6 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             zone: Zone to maintain
             duration: Duration in seconds to keep valve open
         """
-        import asyncio
-
         entity_id = zone.valve_entity_id
         domain = entity_id.split(".")[0]
 
@@ -606,31 +680,29 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             if domain == "switch":
                 # Open valve
-                await self.hass.services.async_call(
-                    "switch", "turn_on", {"entity_id": entity_id}, blocking=True
+                await self._safe_service_call(
+                    "switch", "turn_on", {"entity_id": entity_id}
                 )
                 # Wait
                 await asyncio.sleep(duration)
                 # Close valve
-                await self.hass.services.async_call(
-                    "switch", "turn_off", {"entity_id": entity_id}, blocking=True
+                await self._safe_service_call(
+                    "switch", "turn_off", {"entity_id": entity_id}
                 )
             elif domain == "climate":
                 # Set to heat mode
-                await self.hass.services.async_call(
+                await self._safe_service_call(
                     "climate",
                     "set_hvac_mode",
                     {"entity_id": entity_id, "hvac_mode": "heat"},
-                    blocking=True,
                 )
                 # Wait
                 await asyncio.sleep(duration)
                 # Turn off
-                await self.hass.services.async_call(
+                await self._safe_service_call(
                     "climate",
                     "set_hvac_mode",
                     {"entity_id": entity_id, "hvac_mode": "off"},
-                    blocking=True,
                 )
 
             # Update last activity time
@@ -647,21 +719,27 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Reset pending flag when task completes (success or failure)
             zone.valve_maintenance_pending = False
 
-    def _update_zone_demands(self) -> None:
+    def _update_zone_demands(self, dt: float) -> None:
         """Update PID controllers and calculate demand for each zone.
 
+        Args:
+            dt: Time delta in seconds since last update
+
         For each zone:
-        1. Determine effective setpoint (manual > schedule > default)
+        1. Determine effective setpoint (away > manual > schedule > default)
         2. Check adaptive start (preheat before schedule)
         3. Apply window drop if window is open
         4. Update PID with current temperature
         5. Track warmup for learning
         """
-        from .const import DEFAULT_WINDOW_DROP
-
         now = dt_util.now()
 
         for zone in self.zones.values():
+            # Skip disabled zones
+            if zone.disabled:
+                zone.demand = 0.0
+                continue
+
             # Skip if no temperature reading
             if zone.current_temp is None:
                 _LOGGER.debug("Skipping zone %s: no temperature reading", zone.name)
@@ -681,8 +759,16 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         zone.manual_setpoint = None
                         zone.manual_setpoint_schedule_state = None
 
-            # Determine effective setpoint (priority: manual > schedule > default)
-            if zone.manual_setpoint is not None:
+            # Determine effective setpoint (priority: away > manual > schedule > default)
+            if self._away_mode_active:
+                zone.setpoint = zone.away_temp
+                zone.adaptive_start_active = False
+                _LOGGER.debug(
+                    "Zone %s: away mode, using away temp %.1f°C",
+                    zone.name,
+                    zone.away_temp,
+                )
+            elif zone.manual_setpoint is not None:
                 zone.setpoint = zone.manual_setpoint
                 zone.adaptive_start_active = False
             elif zone.schedule_reader is not None:
@@ -771,6 +857,7 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 setpoint=effective_setpoint,
                 process_variable=zone.current_temp,
                 outdoor_temp=self._outdoor_temp,
+                dt=dt,
             )
 
             # Track warmup for learning
@@ -869,8 +956,6 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         Note: Solar limiting is handled at zone level in _update_zone_demands.
         """
-        from .const import MIN_EFFICIENT_DELTA_T
-
         # Find maximum demand across all zones
         if self.zones:
             self._max_demand = max(zone.demand for zone in self.zones.values())
@@ -997,8 +1082,8 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         )
                         return
 
-                await self.hass.services.async_call(
-                    "switch", "turn_on", {"entity_id": entity_id}, blocking=True
+                await self._safe_service_call(
+                    "switch", "turn_on", {"entity_id": entity_id}
                 )
                 zone.last_valve_activity = now
                 zone.valve_opened_at = now
@@ -1017,8 +1102,8 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         )
                         return
 
-                await self.hass.services.async_call(
-                    "switch", "turn_off", {"entity_id": entity_id}, blocking=True
+                await self._safe_service_call(
+                    "switch", "turn_off", {"entity_id": entity_id}
                 )
                 zone.valve_closed_at = now
                 _LOGGER.debug("Closed valve: %s", entity_id)
@@ -1060,22 +1145,20 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             )
                             return
 
-                    await self.hass.services.async_call(
+                    await self._safe_service_call(
                         "climate",
                         "set_hvac_mode",
                         {"entity_id": entity_id, "hvac_mode": "heat"},
-                        blocking=True,
                     )
                     zone.last_valve_activity = now
                     zone.valve_opened_at = now
                     _LOGGER.debug("Set climate to heat: %s", entity_id)
 
                 # Also set temperature to zone setpoint
-                await self.hass.services.async_call(
+                await self._safe_service_call(
                     "climate",
                     "set_temperature",
                     {"entity_id": entity_id, "temperature": zone.setpoint},
-                    blocking=True,
                 )
             elif current_mode not in ("off", "unavailable"):
                 # Check minimum on-time before closing
@@ -1090,16 +1173,38 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         )
                         return
 
-                await self.hass.services.async_call(
+                await self._safe_service_call(
                     "climate",
                     "set_hvac_mode",
                     {"entity_id": entity_id, "hvac_mode": "off"},
-                    blocking=True,
                 )
                 zone.valve_closed_at = now
                 _LOGGER.debug("Set climate to off: %s", entity_id)
         except Exception as err:
             _LOGGER.error("Failed to control climate valve %s: %s", entity_id, err)
+
+    async def _safe_service_call(
+        self, domain: str, service: str, data: dict[str, Any]
+    ) -> bool:
+        """Call a service with error handling.
+
+        Args:
+            domain: Service domain (e.g., "switch", "climate", "number")
+            service: Service name (e.g., "turn_on", "set_temperature")
+            data: Service data parameters
+
+        Returns:
+            True if service call succeeded, False otherwise
+        """
+        try:
+            await self.hass.services.async_call(domain, service, data, blocking=True)
+            return True
+        except Exception as err:
+            entity_id = data.get("entity_id", "unknown")
+            _LOGGER.error(
+                "Service call %s.%s failed for %s: %s", domain, service, entity_id, err
+            )
+            return False
 
     async def _set_heater_temperature(self, temperature: float) -> None:
         """Set the heater flow temperature setpoint.
@@ -1107,19 +1212,15 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Args:
             temperature: Target flow temperature in °C (0 to turn off)
         """
-        try:
-            await self.hass.services.async_call(
-                "number",
-                "set_value",
-                {
-                    "entity_id": self._heater_entity_id,
-                    "value": temperature,
-                },
-                blocking=True,
-            )
-            _LOGGER.debug("Set heater to %.1f°C", temperature)
-        except Exception as err:
-            _LOGGER.error("Failed to set heater temperature: %s", err)
+        await self._safe_service_call(
+            "number",
+            "set_value",
+            {
+                "entity_id": self._heater_entity_id,
+                "value": temperature,
+            },
+        )
+        _LOGGER.debug("Set heater to %.1f°C", temperature)
 
     def _build_state_dict(self) -> dict[str, Any]:
         """Build state dictionary for coordinator data.
@@ -1173,6 +1274,11 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def quiet_mode_active(self) -> bool:
         """Return whether quiet mode is currently active."""
         return self._quiet_mode_active
+
+    @property
+    def away_mode_active(self) -> bool:
+        """Return whether away mode is currently active."""
+        return self._away_mode_active
 
     async def _update_quiet_mode_state(self, now: datetime) -> None:
         """Update quiet mode state based on current schedule blocks.
@@ -1255,8 +1361,6 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device info for the main EMS Zone Master device."""
-        from homeassistant.helpers.device_registry import DeviceInfo
-
         return DeviceInfo(
             identifiers={(DOMAIN, self.entry.entry_id)},
             name="EMS Zone Master",
@@ -1274,8 +1378,6 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Returns:
             DeviceInfo for the zone, linked to main device
         """
-        from homeassistant.helpers.device_registry import DeviceInfo
-
         return DeviceInfo(
             identifiers={(DOMAIN, f"{self.entry.entry_id}_{zone_name}")},
             name=f"Zone: {zone_name}",

@@ -35,7 +35,7 @@ _LOGGER = logging.getLogger(__name__)
 WEEKDAY_NAMES = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
 
-def _parse_temperature(value: Any) -> float | None:
+def _parse_temperature(value: str | float | int | None) -> float | None:
     """Parse a temperature value, handling European comma decimals.
 
     Args:

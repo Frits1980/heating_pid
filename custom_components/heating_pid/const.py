@@ -31,6 +31,8 @@ CONF_VALVE_MIN_ON_TIME: Final = "valve_min_on_time"
 CONF_VALVE_MIN_OFF_TIME: Final = "valve_min_off_time"
 CONF_QUIET_MODE_MAX_FLOW: Final = "quiet_mode_max_flow"
 CONF_QUIET_MODE_RAMP_MINUTES: Final = "quiet_mode_ramp_minutes"
+CONF_PRESENCE_ENTITY: Final = "presence_entity"
+CONF_AWAY_DELAY: Final = "away_delay"
 
 # Configuration keys - Zones
 CONF_ZONES: Final = "zones"
@@ -41,6 +43,7 @@ CONF_ZONE_WINDOW_ENTITY: Final = "zone_window_entity"
 CONF_ZONE_SCHEDULE_ENTITY: Final = "zone_schedule_entity"
 CONF_ZONE_DEFAULT_SETPOINT: Final = "zone_default_setpoint"
 CONF_ZONE_SOLAR_DROP: Final = "zone_solar_drop"
+CONF_ZONE_AWAY_TEMP: Final = "zone_away_temp"
 
 # Configuration keys - PID
 CONF_KP: Final = "kp"
@@ -59,10 +62,12 @@ DEFAULT_VALVE_MIN_ON_TIME: Final = 5  # Minimum valve on time (minutes)
 DEFAULT_VALVE_MIN_OFF_TIME: Final = 5  # Minimum valve off time (minutes)
 DEFAULT_QUIET_MODE_MAX_FLOW: Final = 0.0  # Disabled by default (°C, 0 = disabled)
 DEFAULT_QUIET_MODE_RAMP_MINUTES: Final = 60  # Ramp-up time (minutes)
+DEFAULT_AWAY_DELAY: Final = 30  # Minutes before activating away mode
 
 # Default values - Zone
 DEFAULT_WINDOW_DROP: Final = 5.0  # Setpoint reduction when window open (°C)
 DEFAULT_SETPOINT: Final = 20.0  # Default target temperature (°C)
+DEFAULT_AWAY_TEMP: Final = 15.0  # Default temperature when away (°C)
 
 # Default values - PID gains
 DEFAULT_KP: Final = 30.0  # Proportional gain

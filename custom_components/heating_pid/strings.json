@@ -60,6 +60,7 @@
           "kd": "Stability (Kd)",
           "ke": "Weather Adjustment (Ke)",
           "zone_solar_drop": "Solar Temperature Drop (optional)",
+          "zone_away_temp": "Away Temperature",
           "add_another": "Add Another Room"
         },
         "data_description": {
@@ -74,6 +75,7 @@
           "kd": "Higher = smoother, less overshooting (UFH: 100-300, radiators: 10-50)",
           "ke": "Boost heating when it's cold outside (typical: 0.01-0.03)",
           "zone_solar_drop": "Override global solar drop for this zone (leave empty to use global)",
+          "zone_away_temp": "Target temperature when away mode is active",
           "add_another": "Enable to add more rooms after this one"
         }
       },
@@ -99,9 +101,28 @@
         "title": "Heating PID Settings",
         "description": "Choose what you want to configure.",
         "menu_options": {
+          "heater_entities": "Heater Entities",
           "global_settings": "Adjust global settings",
           "add_zone": "Add a new heating zone",
           "manage_zones": "Manage existing zones"
+        }
+      },
+      "heater_entities": {
+        "title": "Heater Entities",
+        "description": "Configure the core heater and sensor entities.",
+        "data": {
+          "heater_entity": "Boiler Flow Setpoint",
+          "flow_temp_entity": "Flow Temperature",
+          "return_temp_entity": "Return Temperature",
+          "outdoor_temp_entity": "Outdoor Temperature",
+          "solar_power_entity": "Solar Power (optional)"
+        },
+        "data_description": {
+          "heater_entity": "The number entity that controls your boiler's target water temperature",
+          "flow_temp_entity": "Measures water temperature leaving the boiler",
+          "return_temp_entity": "Measures water temperature returning to the boiler",
+          "outdoor_temp_entity": "Used to adjust heating based on weather conditions",
+          "solar_power_entity": "Reduces heating when solar panels produce enough power"
         }
       },
       "manage_zones": {
@@ -140,7 +161,8 @@
           "ki": "Precision (Ki)",
           "kd": "Stability (Kd)",
           "ke": "Weather Adjustment (Ke)",
-          "zone_solar_drop": "Solar Temperature Drop (optional)"
+          "zone_solar_drop": "Solar Temperature Drop (optional)",
+          "zone_away_temp": "Away Temperature"
         },
         "data_description": {
           "zone_name": "The name of this zone",
@@ -153,7 +175,8 @@
           "ki": "Higher = more precise (UFH: 0.01-0.1, radiators: 0.1-0.5)",
           "kd": "Higher = smoother (UFH: 100-300, radiators: 10-50)",
           "ke": "Boost when cold outside (typical: 0.01-0.03)",
-          "zone_solar_drop": "Override global solar drop for this zone (leave empty to use global)"
+          "zone_solar_drop": "Override global solar drop for this zone (leave empty to use global)",
+          "zone_away_temp": "Target temperature when away mode is active"
         }
       },
       "global_settings": {
@@ -168,7 +191,9 @@
           "valve_min_on_time": "Valve Minimum On Time",
           "valve_min_off_time": "Valve Minimum Off Time",
           "quiet_mode_max_flow": "Quiet Mode Max Flow Temperature",
-          "quiet_mode_ramp_minutes": "Quiet Mode Ramp-up Time"
+          "quiet_mode_ramp_minutes": "Quiet Mode Ramp-up Time",
+          "presence_entity": "Presence Entity",
+          "away_delay": "Away Mode Delay"
         },
         "data_description": {
           "min_egress": "Water temperature when heating demand is minimal",
@@ -179,7 +204,9 @@
           "valve_min_on_time": "Minimum time a valve stays open before it can close (minutes)",
           "valve_min_off_time": "Minimum time a valve stays closed before it can open (minutes)",
           "quiet_mode_max_flow": "Maximum flow temperature during the first heating block (0 = disabled)",
-          "quiet_mode_ramp_minutes": "Time to gradually increase from quiet mode to normal max flow"
+          "quiet_mode_ramp_minutes": "Time to gradually increase from quiet mode to normal max flow",
+          "presence_entity": "Entity that tracks if someone is home",
+          "away_delay": "Minutes before activating away mode when nobody is home"
         }
       },
       "add_zone": {
@@ -196,7 +223,8 @@
           "ki": "Precision (Ki)",
           "kd": "Stability (Kd)",
           "ke": "Weather Adjustment (Ke)",
-          "zone_solar_drop": "Solar Temperature Drop (optional)"
+          "zone_solar_drop": "Solar Temperature Drop (optional)",
+          "zone_away_temp": "Away Temperature"
         },
         "data_description": {
           "zone_name": "Give this room a name (e.g., Living Room)",
@@ -209,7 +237,8 @@
           "ki": "Higher = more precise (UFH: 0.01-0.1, radiators: 0.1-0.5)",
           "kd": "Higher = smoother (UFH: 100-300, radiators: 10-50)",
           "ke": "Boost when cold outside (typical: 0.01-0.03)",
-          "zone_solar_drop": "Override global solar drop for this zone (leave empty to use global)"
+          "zone_solar_drop": "Override global solar drop for this zone (leave empty to use global)",
+          "zone_away_temp": "Target temperature when away mode is active"
         }
       }
     }

@@ -24,6 +24,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .const import (
+    CONF_AWAY_DELAY,
     CONF_FLOW_TEMP_ENTITY,
     CONF_HEATER_ENTITY,
     CONF_KD,
@@ -35,6 +36,7 @@ from .const import (
     CONF_MIN_IGNITION_LEVEL,
     CONF_OUTDOOR_REFERENCE_TEMP,
     CONF_OUTDOOR_TEMP_ENTITY,
+    CONF_PRESENCE_ENTITY,
     CONF_QUIET_MODE_MAX_FLOW,
     CONF_QUIET_MODE_RAMP_MINUTES,
     CONF_RETURN_TEMP_ENTITY,
@@ -42,6 +44,7 @@ from .const import (
     CONF_SOLAR_THRESHOLD,
     CONF_VALVE_MIN_OFF_TIME,
     CONF_VALVE_MIN_ON_TIME,
+    CONF_ZONE_AWAY_TEMP,
     CONF_ZONE_DEFAULT_SETPOINT,
     CONF_ZONE_NAME,
     CONF_ZONE_SCHEDULE_ENTITY,
@@ -50,6 +53,8 @@ from .const import (
     CONF_ZONE_VALVE_ENTITY,
     CONF_ZONE_WINDOW_ENTITY,
     CONF_ZONES,
+    DEFAULT_AWAY_DELAY,
+    DEFAULT_AWAY_TEMP,
     DEFAULT_KD,
     DEFAULT_KE,
     DEFAULT_KI,
@@ -448,6 +453,11 @@ class EmsZoneMasterConfigFlow(ConfigFlow, domain=DOMAIN):
                         min=0, max=10, step=0.5, unit_of_measurement="°C"
                     )
                 ),
+                vol.Optional(CONF_ZONE_AWAY_TEMP, default=DEFAULT_AWAY_TEMP): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=5, max=25, step=0.5, unit_of_measurement="°C"
+                    )
+                ),
                 vol.Optional("add_another", default=False): selector.BooleanSelector(),
             }
         )
@@ -507,6 +517,7 @@ class EmsZoneMasterOptionsFlow(OptionsFlow):
     """Handle options flow for EMS Zone Master.
 
     Allows modification of:
+    - Heater entities (boiler control, flow/return/outdoor temps, solar)
     - Global temperature settings
     - Adding new zones
     - Managing existing zones (edit/delete)
@@ -519,12 +530,82 @@ class EmsZoneMasterOptionsFlow(OptionsFlow):
     ) -> ConfigFlowResult:
         """Handle options menu.
 
-        Shows options to adjust global settings, add, or manage zones.
+        Shows options to adjust heater entities, global settings, add, or manage zones.
         """
         return self.async_show_menu(
             step_id="init",
-            menu_options=["global_settings", "add_zone", "manage_zones"],
+            menu_options=["heater_entities", "global_settings", "add_zone", "manage_zones"],
         )
+
+    async def async_step_heater_entities(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle heater entity configuration.
+
+        Allows changing the core heater and sensor entities after initial setup.
+        """
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            # Validate all required entities exist
+            for key in [
+                CONF_HEATER_ENTITY,
+                CONF_FLOW_TEMP_ENTITY,
+                CONF_RETURN_TEMP_ENTITY,
+                CONF_OUTDOOR_TEMP_ENTITY,
+            ]:
+                entity_id = user_input.get(key)
+                if entity_id and self.hass.states.get(entity_id) is None:
+                    errors[key] = "entity_not_found"
+
+            # Validate optional solar entity
+            solar_entity = user_input.get(CONF_SOLAR_POWER_ENTITY)
+            if solar_entity and self.hass.states.get(solar_entity) is None:
+                errors[CONF_SOLAR_POWER_ENTITY] = "entity_not_found"
+
+            if not errors:
+                # Merge with existing data and reload
+                new_data = {**self.config_entry.data, **user_input}
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry, data=new_data
+                )
+                await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+                return self.async_create_entry(title="", data={})
+
+        schema = vol.Schema({
+            vol.Required(
+                CONF_HEATER_ENTITY,
+                default=self.config_entry.data.get(CONF_HEATER_ENTITY),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="number")
+            ),
+            vol.Required(
+                CONF_FLOW_TEMP_ENTITY,
+                default=self.config_entry.data.get(CONF_FLOW_TEMP_ENTITY),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Required(
+                CONF_RETURN_TEMP_ENTITY,
+                default=self.config_entry.data.get(CONF_RETURN_TEMP_ENTITY),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Required(
+                CONF_OUTDOOR_TEMP_ENTITY,
+                default=self.config_entry.data.get(CONF_OUTDOOR_TEMP_ENTITY),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Optional(
+                CONF_SOLAR_POWER_ENTITY,
+                description={"suggested_value": self.config_entry.data.get(CONF_SOLAR_POWER_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+        })
+
+        return self.async_show_form(step_id="heater_entities", data_schema=schema, errors=errors)
 
     async def async_step_global_settings(
         self, user_input: dict[str, Any] | None = None
@@ -617,6 +698,22 @@ class EmsZoneMasterOptionsFlow(OptionsFlow):
                         min=10, max=180, step=5, unit_of_measurement="min"
                     )
                 ),
+                vol.Optional(
+                    CONF_PRESENCE_ENTITY,
+                    description={"suggested_value": self.config_entry.data.get(CONF_PRESENCE_ENTITY)},
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain=["binary_sensor", "input_boolean", "person", "group"]
+                    )
+                ),
+                vol.Optional(
+                    CONF_AWAY_DELAY,
+                    default=self.config_entry.data.get(CONF_AWAY_DELAY, DEFAULT_AWAY_DELAY),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=120, step=5, unit_of_measurement="min"
+                    )
+                ),
             }
         )
 
@@ -705,6 +802,11 @@ class EmsZoneMasterOptionsFlow(OptionsFlow):
                 vol.Optional(CONF_ZONE_SOLAR_DROP): selector.NumberSelector(
                     selector.NumberSelectorConfig(
                         min=0, max=10, step=0.5, unit_of_measurement="°C"
+                    )
+                ),
+                vol.Optional(CONF_ZONE_AWAY_TEMP, default=DEFAULT_AWAY_TEMP): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=5, max=25, step=0.5, unit_of_measurement="°C"
                     )
                 ),
             }
@@ -933,6 +1035,14 @@ class EmsZoneMasterOptionsFlow(OptionsFlow):
                 ): selector.NumberSelector(
                     selector.NumberSelectorConfig(
                         min=0, max=10, step=0.5, unit_of_measurement="°C"
+                    )
+                ),
+                vol.Optional(
+                    CONF_ZONE_AWAY_TEMP,
+                    description={"suggested_value": current_zone.get(CONF_ZONE_AWAY_TEMP, DEFAULT_AWAY_TEMP)},
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=5, max=25, step=0.5, unit_of_measurement="°C"
                     )
                 ),
             }

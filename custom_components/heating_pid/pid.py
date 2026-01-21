@@ -13,7 +13,6 @@ heating is required for a zone.
 from __future__ import annotations
 
 import logging
-import time
 from typing import Final
 
 _LOGGER = logging.getLogger(__name__)
@@ -54,7 +53,6 @@ class PIDController:
         outdoor_reference_temp: Reference temperature for outdoor compensation (°C)
         integral: Accumulated integral value
         last_pv: Previous process variable for derivative calculation
-        last_time: Timestamp of last update
 
     Note on Ki tuning:
         The integral term accumulates error * dt where dt is in seconds.
@@ -62,6 +60,11 @@ class PIDController:
         accumulates approximately 30x per minute. The default Ki of 0.5 is
         calibrated for this interval. If changing the update interval,
         adjust Ki proportionally.
+
+    Time handling:
+        The coordinator tracks update timing and passes dt (seconds) to each
+        update call. This ensures deterministic behavior and avoids issues
+        with system time changes or monotonic clock inconsistencies.
     """
 
     def __init__(
@@ -90,7 +93,6 @@ class PIDController:
         # State variables
         self.integral: float = 0.0
         self.last_pv: float | None = None
-        self.last_time: float | None = None
         self._last_output: float = 0.0
 
     def update(
@@ -98,7 +100,7 @@ class PIDController:
         setpoint: float,
         process_variable: float,
         outdoor_temp: float | None = None,
-        dt: float | None = None,
+        dt: float = 30.0,
     ) -> float:
         """Calculate PID output for current state.
 
@@ -106,20 +108,11 @@ class PIDController:
             setpoint: Target temperature (°C)
             process_variable: Current temperature (°C)
             outdoor_temp: Current outdoor temperature (°C), optional
-            dt: Time delta since last update (seconds), or None to calculate
+            dt: Time delta since last update in seconds (default: 30.0)
 
         Returns:
             Demand value between 0 and 100 (%)
         """
-        current_time = time.monotonic()
-
-        # Calculate time delta
-        if dt is None:
-            if self.last_time is None:
-                dt = 0.0
-            else:
-                dt = current_time - self.last_time
-
         # Calculate error
         error = setpoint - process_variable
 
@@ -173,7 +166,6 @@ class PIDController:
 
         # Update state
         self.last_pv = process_variable
-        self.last_time = current_time
         self._last_output = output
 
         _LOGGER.debug(
@@ -193,12 +185,11 @@ class PIDController:
     def reset(self) -> None:
         """Reset the controller state.
 
-        Clears integral, derivative history, and timing.
+        Clears integral, derivative history, and last output.
         Called when zone is disabled or on significant setpoint changes.
         """
         self.integral = 0.0
         self.last_pv = None
-        self.last_time = None
         self._last_output = 0.0
         _LOGGER.debug("PID controller reset")
 

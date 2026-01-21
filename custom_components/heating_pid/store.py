@@ -52,6 +52,7 @@ class EmsZoneMasterStore:
             "warmup_factors": {},
             "pid_integrals": {},
             "manual_setpoints": {},
+            "pid_gains": {},
         }
 
     async def async_load(self) -> None:
@@ -166,6 +167,8 @@ class EmsZoneMasterStore:
             self._data["pid_integrals"].pop(zone_name, None)
         if "manual_setpoints" in self._data:
             self._data["manual_setpoints"].pop(zone_name, None)
+        if "pid_gains" in self._data:
+            self._data["pid_gains"].pop(zone_name, None)
         _LOGGER.debug("Cleared stored data for zone: %s", zone_name)
 
     def get_all_warmup_factors(self) -> dict[str, float]:
@@ -183,3 +186,43 @@ class EmsZoneMasterStore:
             Dictionary mapping zone names to PID integrals
         """
         return dict(self._data.get("pid_integrals", {}))
+
+    def get_pid_gains(self, zone_name: str) -> dict[str, float] | None:
+        """Get the stored PID gains for a zone.
+
+        Args:
+            zone_name: Name of the zone
+
+        Returns:
+            Dictionary with kp, ki, kd, ke values, or None if not stored
+        """
+        return self._data.get("pid_gains", {}).get(zone_name)
+
+    def set_pid_gains(
+        self, zone_name: str, kp: float, ki: float, kd: float, ke: float
+    ) -> None:
+        """Store PID gains for a zone.
+
+        Args:
+            zone_name: Name of the zone
+            kp: Proportional gain
+            ki: Integral gain
+            kd: Derivative gain
+            ke: Outdoor compensation gain
+        """
+        if "pid_gains" not in self._data:
+            self._data["pid_gains"] = {}
+        self._data["pid_gains"][zone_name] = {
+            "kp": kp,
+            "ki": ki,
+            "kd": kd,
+            "ke": ke,
+        }
+        _LOGGER.debug(
+            "Stored PID gains for %s: Kp=%.1f, Ki=%.2f, Kd=%.1f, Ke=%.3f",
+            zone_name,
+            kp,
+            ki,
+            kd,
+            ke,
+        )

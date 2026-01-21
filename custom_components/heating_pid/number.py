@@ -168,6 +168,17 @@ class PIDGainNumber(CoordinatorEntity["EmsZoneMasterCoordinator"], NumberEntity)
         # Update the PID controller
         zone.pid.set_gains(**{self._gain_name: value})
 
+        # Persist all gains for this zone
+        self.coordinator.store.set_pid_gains(
+            self._zone_name,
+            zone.pid.kp,
+            zone.pid.ki,
+            zone.pid.kd,
+            zone.pid.ke,
+        )
+        # Trigger immediate save
+        await self.coordinator.store.async_save()
+
         # Trigger state update
         self.async_write_ha_state()
 
