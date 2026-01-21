@@ -126,11 +126,20 @@ class PIDController:
         # Proportional term
         p_term = self.kp * error
 
+        # Derivative term (on process variable, not error)
+        # Calculated before integral so it can be included in anti-windup check
+        d_term = 0.0
+        if self.last_pv is not None and dt > 0:
+            # Negative because we want to resist rapid temperature changes
+            d_term = -self.kd * (process_variable - self.last_pv) / dt
+
         # Integral term with anti-windup
         # Only accumulate if not saturated or error would reduce saturation
         if dt > 0:
             potential_integral = self.integral + error * dt
-            potential_output = p_term + self.ki * potential_integral
+            # Include D term in anti-windup check so integral can decrease when
+            # temperature is rising quickly (negative D term reduces actual output)
+            potential_output = p_term + self.ki * potential_integral + d_term
 
             # Anti-windup: only update integral if output not saturated
             # or if change would move away from saturation
@@ -142,12 +151,6 @@ class PIDController:
                 self.integral = potential_integral
 
         i_term = self.ki * self.integral
-
-        # Derivative term (on process variable, not error)
-        d_term = 0.0
-        if self.last_pv is not None and dt > 0:
-            # Negative because we want to resist rapid temperature changes
-            d_term = -self.kd * (process_variable - self.last_pv) / dt
 
         # Base output before outdoor compensation
         output = p_term + i_term + d_term

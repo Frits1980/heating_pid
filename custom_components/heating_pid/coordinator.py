@@ -279,10 +279,23 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 outdoor_reference_temp=self._outdoor_reference_temp,
             )
 
-            # Restore integral from store if available
+            # Restore integral from store if available, with validation
+            # Prevents persisting unreasonable values that cause 100% demand lockup
             stored_integral = self.store.get_pid_integral(name)
             if stored_integral is not None:
-                pid.integral = stored_integral
+                # Validate: max reasonable integral produces ~150% output before clamping
+                # This allows for outdoor compensation but prevents runaway windup
+                max_reasonable_integral = 300.0  # 150% output / Ki(0.5)
+                if abs(stored_integral) <= max_reasonable_integral:
+                    pid.integral = stored_integral
+                else:
+                    _LOGGER.warning(
+                        "Zone %s: ignoring stored integral %.1f (exceeds max %.1f), resetting",
+                        name,
+                        stored_integral,
+                        max_reasonable_integral,
+                    )
+                    pid.integral = 0.0
 
             zone = ZoneState(
                 name=name,
@@ -321,7 +334,7 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 zone.schedule_reader = ScheduleReader(
                     hass=self.hass,
                     entity_id=schedule_entity,
-                    default_setpoint=zone.default_setpoint - 3.0,  # Setback temp
+                    default_setpoint=zone.default_setpoint,
                 )
                 _LOGGER.debug(
                     "Created schedule reader for zone %s: %s",
