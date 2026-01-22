@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import datetime  # Used for type hints in PendingChange
 from typing import Awaitable, Callable
 
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.util import dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -80,7 +82,7 @@ class StateDebouncer:
                 return
 
             new_state_value = state.state
-            now = datetime.now()
+            now = dt_util.now()
 
             # Check if there's a pending change
             if entity_id in self._pending:
@@ -142,10 +144,10 @@ class StateDebouncer:
         # Track previous state
         setattr(self, f"_prev_state_{entity_id}", None)
 
-        # Subscribe to state changes
+        # Subscribe to state changes using proper HA event tracking
         self._unsub_listeners.append(
-            self._hass.states.async_track_entity(
-                entity_id, _state_listener, _state_listener
+            async_track_state_change_event(
+                self._hass, entity_id, _state_listener
             )
         )
 
@@ -199,22 +201,23 @@ class StateDebouncer:
                     # State changed again, reschedule
                     change_new = PendingChange(
                         new_state=current.state,
-                        detected_at=datetime.now(),
+                        detected_at=dt_util.now(),
                         delay_seconds=change.delay_seconds,
                         callback=change.callback,
                     )
                     change_new.cancel_timer = self._schedule_confirmation(
-                        entity_id, change_new, datetime.now()
+                        entity_id, change_new, dt_util.now()
                     )
                     self._pending[entity_id] = change_new
 
             except Exception as err:
                 _LOGGER.error("Error in state confirmation callback: %s", err)
 
-        # Schedule the callback
-        return asyncio.get_event_loop().call_later(
+        # Schedule the callback using HA's event loop
+        timer_handle = self._hass.loop.call_later(
             change.delay_seconds, lambda: asyncio.create_task(_confirm_callback())
         )
+        return timer_handle.cancel
 
     def cancel_pending(self, entity_id: str) -> None:
         """Cancel any pending state change for an entity.
