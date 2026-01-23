@@ -78,7 +78,6 @@ from .pid import PIDController
 from .state_debouncer import StateDebouncer
 from .store import EmsZoneMasterStore
 from .valve_manager import ValveManager
-from .zone_logic import ZoneLogic
 from .schedule import ScheduleReader
 
 _LOGGER = logging.getLogger(__name__)

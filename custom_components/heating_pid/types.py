@@ -1,13 +1,14 @@
 """Type definitions for Heating PID integration.
 
 This module provides TypedDict classes for configuration and data structures
-used throughout the integration, enabling better type safety and mypy compliance.
+used throughout the integration, enabling better type safety and IDE support.
 """
 
 from dataclasses import dataclass
+from typing import TypedDict
 
 
-class ZoneConfigDict(dict):
+class ZoneConfigDict(TypedDict):
     """Configuration dict for a heating zone.
 
     Created from config flow options or initial setup.
@@ -27,7 +28,7 @@ class ZoneConfigDict(dict):
     ke: float
 
 
-class HeaterConfigDict(dict):
+class HeaterConfigDict(TypedDict):
     """Configuration dict for heater entities."""
 
     heater_entity: str
@@ -37,7 +38,7 @@ class HeaterConfigDict(dict):
     solar_power_entity: str | None
 
 
-class GlobalConfigDict(dict):
+class GlobalConfigDict(TypedDict):
     """Configuration dict for global settings."""
 
     min_egress: float
@@ -54,7 +55,7 @@ class GlobalConfigDict(dict):
     away_delay: int
 
 
-class ConfigEntryData(dict):
+class ConfigEntryData(TypedDict):
     """Data stored in config_entry.data."""
 
     heater_entity: str
@@ -77,7 +78,7 @@ class ConfigEntryData(dict):
     zones: list[ZoneConfigDict]
 
 
-class CoordinatorStateDict(dict):
+class CoordinatorStateDict(TypedDict):
     """State exposed by coordinator to entities."""
 
     flow_temp: float | None
