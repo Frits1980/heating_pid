@@ -367,8 +367,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: EmsZoneMasterConfigEntry
     # Register update listener for options changes
     entry.async_on_unload(entry.add_update_listener(async_update_options))
 
-    # Register services (only once per domain)
-    if DOMAIN not in hass.data.get("services_registered", []):
+    # Register services (only once per domain) - use atomic has_service check
+    if not hass.services.has_service(DOMAIN, "reset_zone_learning"):
         hass.services.async_register(
             DOMAIN,
             "reset_zone_learning",
@@ -389,7 +389,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: EmsZoneMasterConfigEntry
             "clear_manual_setpoint",
             _handle_clear_manual_setpoint,
         )
-        hass.data.setdefault("services_registered", []).append(DOMAIN)
 
     _LOGGER.info("EMS Zone Master setup complete for entry: %s", entry.entry_id)
     return True
@@ -431,7 +430,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: EmsZoneMasterConfigEntr
         hass.services.async_remove(DOMAIN, "reset_zone_pid")
         hass.services.async_remove(DOMAIN, "force_valve_maintenance")
         hass.services.async_remove(DOMAIN, "clear_manual_setpoint")
-        hass.data.pop("services_registered", None)
 
     return unload_ok
 

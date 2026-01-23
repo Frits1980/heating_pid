@@ -13,13 +13,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.device_registry import DeviceInfo
-
-if TYPE_CHECKING:
-    from .schedule import ScheduleReader
 
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.event import async_track_time_interval
@@ -82,6 +79,7 @@ from .state_debouncer import StateDebouncer
 from .store import EmsZoneMasterStore
 from .valve_manager import ValveManager
 from .zone_logic import ZoneLogic
+from .schedule import ScheduleReader
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -471,7 +469,7 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Apply window drop if needed
         effective_setpoint = zone.setpoint
         if zone.window_open:
-            effective_setpoint -= self._solar_drop
+            effective_setpoint -= DEFAULT_WINDOW_DROP
 
         # Update PID
         output = zone.pid.update(
