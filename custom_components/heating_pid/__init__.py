@@ -17,7 +17,10 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse
-from homeassistant.components.persistent_notification import async_create as async_notify
+from homeassistant.components.persistent_notification import (
+    async_create as async_notify,
+    async_dismiss as async_dismiss_notification,
+)
 
 from .const import (
     DOMAIN,
@@ -419,6 +422,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: EmsZoneMasterConfigEntr
         coordinator: EmsZoneMasterCoordinator = entry.runtime_data
         await coordinator.async_shutdown()
         _LOGGER.info("EMS Zone Master unloaded: %s", entry.entry_id)
+
+    # Dismiss any notifications created for this entry
+    async_dismiss_notification(hass, f"{DOMAIN}_{entry.entry_id}_config_error")
+    async_dismiss_notification(hass, f"{DOMAIN}_{entry.entry_id}_zone_warning")
 
     # Unregister services if this is the last entry
     remaining_entries = [
