@@ -416,13 +416,17 @@ class ScheduleReader:
                 is_active=True,
             ))
 
-            # End of active period (only if not overnight)
-            if to_time > from_time:
-                events.append(ScheduleEvent(
-                    time=to_time,
-                    setpoint=self.default_setpoint,
-                    is_active=False,
-                ))
+            # End of active period
+            # For overnight blocks (to_time < from_time), the end event logically
+            # belongs to the next day, but we still generate it to mark the deactivation.
+            # When sorted, end events at early times (e.g., 06:00) appear before
+            # start events at late times (e.g., 22:00), which correctly represents
+            # the previous night's block ending.
+            events.append(ScheduleEvent(
+                time=to_time,
+                setpoint=self.default_setpoint,
+                is_active=False,
+            ))
 
         # Sort by time
         events.sort(key=lambda e: e.time)
@@ -541,7 +545,7 @@ class ScheduleReader:
             if response and self.entity_id in response:
                 return response[self.entity_id]
         except Exception as err:
-            _LOGGER.debug("Failed to fetch schedule data for %s: %s", self.entity_id, err)
+            _LOGGER.warning("Failed to fetch schedule data for %s: %s", self.entity_id, err)
         return None
 
     def _find_next_block_temp(

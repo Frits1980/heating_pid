@@ -191,6 +191,19 @@ class EmsZoneClimate(CoordinatorEntity["EmsZoneMasterCoordinator"], ClimateEntit
         if temperature is None:
             return
 
+        # Validate and clamp temperature to allowed bounds
+        original_temp = temperature
+        temperature = max(self._attr_min_temp, min(self._attr_max_temp, temperature))
+        if temperature != original_temp:
+            _LOGGER.warning(
+                "Temperature %.1f°C for %s clamped to valid range [%.1f, %.1f]: %.1f°C",
+                original_temp,
+                self._zone_name,
+                self._attr_min_temp,
+                self._attr_max_temp,
+                temperature,
+            )
+
         _LOGGER.info(
             "Setting manual temperature for %s: %.1f°C",
             self._zone_name,
