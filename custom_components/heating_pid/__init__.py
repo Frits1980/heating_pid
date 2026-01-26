@@ -230,6 +230,70 @@ async def _handle_clear_manual_setpoint(
     return {}
 
 
+async def _handle_set_default_setpoint(
+    hass: HomeAssistant, call: ServiceCall
+) -> ServiceResponse:
+    """Handle set_default_setpoint service call.
+
+    Sets zone(s) to their configured default temperature.
+    Useful for bedtime routines or resetting zones to baseline.
+
+    Args:
+        hass: Home Assistant instance
+        call: Service call with optional zone_name parameter
+
+    Returns:
+        Service response
+    """
+    zone_name = call.data.get("zone_name")
+
+    # Get all entries and find coordinators
+    entries: list[EmsZoneMasterConfigEntry] = [
+        entry
+        for entry in hass.config_entries.async_entries(DOMAIN)
+        if entry.state.loaded  # type: ignore
+    ]
+
+    set_count = 0
+    for entry in entries:
+        coordinator: EmsZoneMasterCoordinator = entry.runtime_data
+        if zone_name:
+            # Set specific zone
+            if zone_name in coordinator.zones:
+                zone = coordinator.zones[zone_name]
+                zone.manual_setpoint = zone.default_setpoint
+                zone.setpoint = zone.default_setpoint
+                zone.manual_setpoint_schedule_state = None
+                coordinator.store.set_manual_setpoint(zone_name, zone.default_setpoint)
+                set_count += 1
+                _LOGGER.info(
+                    "Set zone %s to default setpoint %.1f°C",
+                    zone_name,
+                    zone.default_setpoint,
+                )
+            else:
+                _LOGGER.warning("Zone not found: %s", zone_name)
+        else:
+            # Set all zones
+            for name, zone in coordinator.zones.items():
+                zone.manual_setpoint = zone.default_setpoint
+                zone.setpoint = zone.default_setpoint
+                zone.manual_setpoint_schedule_state = None
+                coordinator.store.set_manual_setpoint(name, zone.default_setpoint)
+                set_count += 1
+            _LOGGER.info(
+                "Set all zones to default setpoint in entry: %s", entry.entry_id
+            )
+
+    # Persist changes
+    for entry in entries:
+        await entry.runtime_data.store.async_save()
+        await entry.runtime_data.async_request_refresh()
+
+    _LOGGER.info("Set default setpoint for %d zones", set_count)
+    return {}
+
+
 async def _validate_core_entities(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> list[str]:
@@ -392,6 +456,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: EmsZoneMasterConfigEntry
             "clear_manual_setpoint",
             _handle_clear_manual_setpoint,
         )
+        hass.services.async_register(
+            DOMAIN,
+            "set_default_setpoint",
+            _handle_set_default_setpoint,
+        )
 
     _LOGGER.info("EMS Zone Master setup complete for entry: %s", entry.entry_id)
     return True
@@ -437,6 +506,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: EmsZoneMasterConfigEntr
         hass.services.async_remove(DOMAIN, "reset_zone_pid")
         hass.services.async_remove(DOMAIN, "force_valve_maintenance")
         hass.services.async_remove(DOMAIN, "clear_manual_setpoint")
+        hass.services.async_remove(DOMAIN, "set_default_setpoint")
 
     return unload_ok
 
