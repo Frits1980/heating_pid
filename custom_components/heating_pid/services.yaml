@@ -45,3 +45,15 @@ clear_manual_setpoint:
       example: "Living Room"
       selector:
         text:
+
+set_default_setpoint:
+  name: Set Default Setpoint
+  description: Set zones to their configured default temperature (useful for bedtime routines)
+  fields:
+    zone_name:
+      name: Zone Name
+      description: Name of zone (empty for all zones)
+      required: false
+      example: "Living Room"
+      selector:
+        text:

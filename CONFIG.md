@@ -85,6 +85,27 @@ When your solar panels produce more than this amount, the heating system reduces
 
 How much to reduce the flow temperature when solar production exceeds the limit. A higher value means more aggressive solar prioritization.
 
+### Outdoor Reference Temperature
+**Default: 15°C** | Range: 5-25°C
+
+The baseline temperature for outdoor compensation calculations. When outdoor temperature drops below this reference, the system automatically boosts heating demand.
+
+**How it works:**
+- When outdoor temp equals reference: No compensation applied
+- When outdoor temp is below reference: Heating is boosted proportionally
+- The boost depends on both Ke (Weather Adjustment) and how far below reference
+
+**Example calculation:**
+- Reference: 15°C, Current outdoor: 5°C, Ke: 0.02
+- Temperature below reference: 15 - 5 = 10°C
+- Compensation factor: 1.0 + (0.02 × 10) = 1.20
+- **Result: 20% boost to heating demand**
+
+**When to adjust:**
+- House needs more heating on mild days (10-15°C): Raise the reference
+- System over-heats on cool autumn days: Lower the reference
+- Most homes work well with 15°C (default)
+
 ---
 
 ## Step 3: Zone Configuration

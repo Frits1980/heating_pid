@@ -75,7 +75,7 @@
           "kd": "Higher = smoother, less overshooting (UFH: 100-300, radiators: 10-50)",
           "ke": "Boost heating when it's cold outside (typical: 0.01-0.03)",
           "zone_solar_drop": "Override global solar drop for this zone (leave empty to use global)",
-          "zone_away_temp": "Target temperature when away mode is active",
+          "zone_away_temp": "Target temperature when away mode activates (requires presence entity in global settings)",
           "add_another": "Enable to add more rooms after this one"
         }
       },
@@ -176,7 +176,7 @@
           "kd": "Higher = smoother (UFH: 100-300, radiators: 10-50)",
           "ke": "Boost when cold outside (typical: 0.01-0.03)",
           "zone_solar_drop": "Override global solar drop for this zone (leave empty to use global)",
-          "zone_away_temp": "Target temperature when away mode is active"
+          "zone_away_temp": "Target temperature when away mode activates (requires presence entity in global settings)"
         }
       },
       "global_settings": {
@@ -238,7 +238,7 @@
           "kd": "Higher = smoother (UFH: 100-300, radiators: 10-50)",
           "ke": "Boost when cold outside (typical: 0.01-0.03)",
           "zone_solar_drop": "Override global solar drop for this zone (leave empty to use global)",
-          "zone_away_temp": "Target temperature when away mode is active"
+          "zone_away_temp": "Target temperature when away mode activates (requires presence entity in global settings)"
         }
       }
     }
