@@ -133,7 +133,7 @@
         }
       },
       "zone_action": {
-        "title": "Zone: {zone_name}",
+        "title": "Zone Actions",
         "description": "What would you like to do with this zone?",
         "menu_options": {
           "edit_zone": "Edit zone settings",
