@@ -63,7 +63,7 @@ async def _handle_reset_zone_learning(
     entries: list[EmsZoneMasterConfigEntry] = [
         entry
         for entry in hass.config_entries.async_entries(DOMAIN)
-        if entry.state.loaded  # type: ignore
+        if entry.state == ConfigEntryState.LOADED
     ]
 
     reset_count = 0
@@ -112,7 +112,7 @@ async def _handle_reset_zone_pid(
     entries: list[EmsZoneMasterConfigEntry] = [
         entry
         for entry in hass.config_entries.async_entries(DOMAIN)
-        if entry.state.loaded  # type: ignore
+        if entry.state == ConfigEntryState.LOADED
     ]
 
     reset_count = 0
@@ -163,7 +163,7 @@ async def _handle_force_valve_maintenance(
 
     # Find the zone
     for entry in hass.config_entries.async_entries(DOMAIN):
-        if entry.state.loaded and zone_name in entry.runtime_data.zones:  # type: ignore
+        if entry.state == ConfigEntryState.LOADED and zone_name in entry.runtime_data.zones:
             coordinator: EmsZoneMasterCoordinator = entry.runtime_data
             zone = coordinator.zones[zone_name]
 
@@ -197,7 +197,7 @@ async def _handle_clear_manual_setpoint(
     entries: list[EmsZoneMasterConfigEntry] = [
         entry
         for entry in hass.config_entries.async_entries(DOMAIN)
-        if entry.state.loaded  # type: ignore
+        if entry.state == ConfigEntryState.LOADED
     ]
 
     cleared_count = 0
@@ -251,7 +251,7 @@ async def _handle_set_default_setpoint(
     entries: list[EmsZoneMasterConfigEntry] = [
         entry
         for entry in hass.config_entries.async_entries(DOMAIN)
-        if entry.state.loaded  # type: ignore
+        if entry.state == ConfigEntryState.LOADED
     ]
 
     set_count = 0

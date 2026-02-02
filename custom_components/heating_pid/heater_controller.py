@@ -43,6 +43,10 @@ class HeaterController:
         min_ignition_level: float,
         quiet_mode_max_flow: float = 0.0,
         quiet_mode_ramp_minutes: int = 60,
+        ignition_hysteresis: float = 5.0,
+        cooldown_hysteresis: float = 2.0,
+        min_burner_runtime: int = 5,
+        min_burner_off_time: int = 3,
     ) -> None:
         """Initialize the heater controller.
 
@@ -54,6 +58,10 @@ class HeaterController:
             min_ignition_level: Minimum demand level to activate (%)
             quiet_mode_max_flow: Max flow temp during quiet mode (0 = disabled)
             quiet_mode_ramp_minutes: Time to ramp from quiet to normal (minutes)
+            ignition_hysteresis: Demand hysteresis to prevent cycling (%)
+            cooldown_hysteresis: Delta-T hysteresis for cooldown exit (°C)
+            min_burner_runtime: Minimum burner on time (minutes)
+            min_burner_off_time: Minimum burner off time (minutes)
         """
         self.hass = hass
         self._heater_entity_id = heater_entity_id
@@ -62,10 +70,16 @@ class HeaterController:
         self._min_ignition_level = min_ignition_level
         self._quiet_mode_max_flow = quiet_mode_max_flow
         self._quiet_mode_ramp_minutes = quiet_mode_ramp_minutes
+        self._ignition_hysteresis = ignition_hysteresis
+        self._cooldown_hysteresis = cooldown_hysteresis
+        self._min_burner_runtime = min_burner_runtime
+        self._min_burner_off_time = min_burner_off_time
 
         # Runtime state
         self._heater_was_active: bool = False
         self._cooldown_active: bool = False
+        self._burner_started_at: datetime | None = None
+        self._burner_stopped_at: datetime | None = None
 
     def calculate_target_flow_temp(
         self,
@@ -95,18 +109,48 @@ class HeaterController:
         )
         self._cooldown_active = cooldown_active
 
+        # Determine effective ignition threshold with hysteresis
+        if self._heater_was_active:
+            # Burner is ON - use lower threshold to prevent oscillation
+            effective_ignition = self._min_ignition_level - self._ignition_hysteresis
+        else:
+            # Burner is OFF - use normal threshold
+            effective_ignition = self._min_ignition_level
+
+        # Check minimum runtime constraints
+        burner_should_stay_on = False
+        burner_should_stay_off = False
+
+        if self._burner_started_at is not None:
+            runtime_minutes = (now - self._burner_started_at).total_seconds() / 60
+            if runtime_minutes < self._min_burner_runtime:
+                burner_should_stay_on = True
+
+        if self._burner_stopped_at is not None:
+            off_time_minutes = (now - self._burner_stopped_at).total_seconds() / 60
+            if off_time_minutes < self._min_burner_off_time:
+                burner_should_stay_off = True
+
         # Calculate target flow temperature from demand curve
         # Formula: target = min + (demand / 100) × (effective_max - min)
-        if max_demand < self._min_ignition_level or cooldown_active:
+        should_be_off = (
+            max_demand < effective_ignition or cooldown_active or burner_should_stay_off
+        )
+        should_be_on = max_demand >= self._min_ignition_level and not cooldown_active
+
+        if should_be_off and not burner_should_stay_on:
             # Below ignition threshold or in cooldown - turn off
             target_temp = 0.0
-        else:
+        elif (should_be_on or burner_should_stay_on) and not burner_should_stay_off:
             effective_max = self._get_effective_max_flow(
                 quiet_mode_active, first_block_start_time, now
             )
             target_temp = self._min_egress + (
                 max_demand / 100.0
             ) * (effective_max - self._min_egress)
+        else:
+            # Default fallback
+            target_temp = 0.0
 
         _LOGGER.debug(
             "Heater control: demand=%.1f%%, target=%.1f°C, cooldown=%s",
@@ -144,23 +188,39 @@ class HeaterController:
         delta_t = flow_temp - return_temp
         boiler_is_responding = flow_temp >= self._min_egress
 
-        if (
-            heater_was_active
-            and boiler_is_responding
-            and delta_t < MIN_EFFICIENT_DELTA_T
-            and max_demand > 0
-        ):
-            if not self._cooldown_active:
+        # Determine effective threshold with hysteresis
+        if self._cooldown_active:
+            # In cooldown - use higher threshold to exit (prevents oscillation)
+            exit_threshold = MIN_EFFICIENT_DELTA_T + self._cooldown_hysteresis
+            should_exit = delta_t >= exit_threshold
+
+            if should_exit:
+                _LOGGER.info(
+                    "Exiting cooldown mode: delta-T=%.1f°C >= %.1f°C threshold",
+                    delta_t,
+                    exit_threshold,
+                )
+                return False
+            else:
+                return True
+        else:
+            # Not in cooldown - check if should enter
+            should_enter = (
+                heater_was_active
+                and boiler_is_responding
+                and delta_t < MIN_EFFICIENT_DELTA_T
+                and max_demand > 0
+            )
+
+            if should_enter:
                 _LOGGER.info(
                     "Entering cooldown mode: delta-T=%.1f°C < %.1f°C threshold",
                     delta_t,
                     MIN_EFFICIENT_DELTA_T,
                 )
-            return True
-        else:
-            if self._cooldown_active:
-                _LOGGER.info("Exiting cooldown mode: delta-T=%.1f°C", delta_t)
-            return False
+                return True
+            else:
+                return False
 
     def _get_effective_max_flow(
         self,
@@ -215,8 +275,22 @@ class HeaterController:
         )
         _LOGGER.debug("Set heater to %.1f°C", temperature)
 
+        # Track burner state transitions
+        burner_is_active = temperature > 0
+
+        if burner_is_active and not self._heater_was_active:
+            # Burner turning ON
+            self._burner_started_at = datetime.now()
+            self._burner_stopped_at = None
+            _LOGGER.debug("Burner turned ON at %s", self._burner_started_at)
+        elif not burner_is_active and self._heater_was_active:
+            # Burner turning OFF
+            self._burner_stopped_at = datetime.now()
+            self._burner_started_at = None
+            _LOGGER.debug("Burner turned OFF at %s", self._burner_stopped_at)
+
         # Track heater state for next cycle's cooldown check
-        self._heater_was_active = temperature > 0
+        self._heater_was_active = burner_is_active
 
     @property
     def cooldown_active(self) -> bool:

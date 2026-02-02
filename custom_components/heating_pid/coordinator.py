@@ -25,13 +25,17 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_AWAY_DELAY,
+    CONF_COOLDOWN_HYSTERESIS,
     CONF_FLOW_TEMP_ENTITY,
     CONF_HEATER_ENTITY,
+    CONF_IGNITION_HYSTERESIS,
     CONF_KD,
     CONF_KE,
     CONF_KI,
     CONF_KP,
     CONF_MAX_EGRESS,
+    CONF_MIN_BURNER_OFF_TIME,
+    CONF_MIN_BURNER_RUNTIME,
     CONF_MIN_EGRESS,
     CONF_MIN_IGNITION_LEVEL,
     CONF_OUTDOOR_REFERENCE_TEMP,
@@ -57,6 +61,10 @@ from .const import (
     COORDINATOR_UPDATE_INTERVAL,
     DEFAULT_AWAY_DELAY,
     DEFAULT_AWAY_TEMP,
+    DEFAULT_COOLDOWN_HYSTERESIS,
+    DEFAULT_IGNITION_HYSTERESIS,
+    DEFAULT_MIN_BURNER_OFF_TIME,
+    DEFAULT_MIN_BURNER_RUNTIME,
     DEFAULT_OUTDOOR_REFERENCE_TEMP,
     DEFAULT_QUIET_MODE_MAX_FLOW,
     DEFAULT_QUIET_MODE_RAMP_MINUTES,
@@ -220,6 +228,18 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._quiet_mode_ramp_minutes: int = entry.data.get(
             CONF_QUIET_MODE_RAMP_MINUTES, DEFAULT_QUIET_MODE_RAMP_MINUTES
         )
+        self._ignition_hysteresis: float = entry.data.get(
+            CONF_IGNITION_HYSTERESIS, DEFAULT_IGNITION_HYSTERESIS
+        )
+        self._cooldown_hysteresis: float = entry.data.get(
+            CONF_COOLDOWN_HYSTERESIS, DEFAULT_COOLDOWN_HYSTERESIS
+        )
+        self._min_burner_runtime: int = entry.data.get(
+            CONF_MIN_BURNER_RUNTIME, DEFAULT_MIN_BURNER_RUNTIME
+        )
+        self._min_burner_off_time: int = entry.data.get(
+            CONF_MIN_BURNER_OFF_TIME, DEFAULT_MIN_BURNER_OFF_TIME
+        )
 
         # Runtime state
         self._current_flow_temp: float | None = None
@@ -253,6 +273,10 @@ class EmsZoneMasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._min_ignition_level,
             self._quiet_mode_max_flow,
             self._quiet_mode_ramp_minutes,
+            self._ignition_hysteresis,
+            self._cooldown_hysteresis,
+            self._min_burner_runtime,
+            self._min_burner_off_time,
         )
         self._valve_manager = ValveManager(
             hass,
