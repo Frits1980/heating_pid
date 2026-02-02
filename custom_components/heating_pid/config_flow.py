@@ -25,13 +25,17 @@ from homeassistant.helpers import selector
 
 from .const import (
     CONF_AWAY_DELAY,
+    CONF_COOLDOWN_HYSTERESIS,
     CONF_FLOW_TEMP_ENTITY,
     CONF_HEATER_ENTITY,
+    CONF_IGNITION_HYSTERESIS,
     CONF_KD,
     CONF_KE,
     CONF_KI,
     CONF_KP,
     CONF_MAX_EGRESS,
+    CONF_MIN_BURNER_OFF_TIME,
+    CONF_MIN_BURNER_RUNTIME,
     CONF_MIN_EGRESS,
     CONF_MIN_IGNITION_LEVEL,
     CONF_OUTDOOR_REFERENCE_TEMP,
@@ -55,11 +59,15 @@ from .const import (
     CONF_ZONES,
     DEFAULT_AWAY_DELAY,
     DEFAULT_AWAY_TEMP,
+    DEFAULT_COOLDOWN_HYSTERESIS,
+    DEFAULT_IGNITION_HYSTERESIS,
     DEFAULT_KD,
     DEFAULT_KE,
     DEFAULT_KI,
     DEFAULT_KP,
     DEFAULT_MAX_EGRESS,
+    DEFAULT_MIN_BURNER_OFF_TIME,
+    DEFAULT_MIN_BURNER_RUNTIME,
     DEFAULT_MIN_EGRESS,
     DEFAULT_MIN_IGNITION_LEVEL,
     DEFAULT_OUTDOOR_REFERENCE_TEMP,
@@ -345,6 +353,34 @@ class EmsZoneMasterConfigFlow(ConfigFlow, domain=DOMAIN):
                 ): selector.NumberSelector(
                     selector.NumberSelectorConfig(
                         min=10, max=180, step=5, unit_of_measurement="min"
+                    )
+                ),
+                vol.Optional(
+                    CONF_IGNITION_HYSTERESIS, default=DEFAULT_IGNITION_HYSTERESIS
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=15, step=1, unit_of_measurement="%"
+                    )
+                ),
+                vol.Optional(
+                    CONF_COOLDOWN_HYSTERESIS, default=DEFAULT_COOLDOWN_HYSTERESIS
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=5, step=0.5, unit_of_measurement="°C"
+                    )
+                ),
+                vol.Optional(
+                    CONF_MIN_BURNER_RUNTIME, default=DEFAULT_MIN_BURNER_RUNTIME
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=30, step=1, unit_of_measurement="min"
+                    )
+                ),
+                vol.Optional(
+                    CONF_MIN_BURNER_OFF_TIME, default=DEFAULT_MIN_BURNER_OFF_TIME
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=30, step=1, unit_of_measurement="min"
                     )
                 ),
             }
@@ -712,6 +748,38 @@ class EmsZoneMasterOptionsFlow(OptionsFlow):
                 ): selector.NumberSelector(
                     selector.NumberSelectorConfig(
                         min=0, max=120, step=5, unit_of_measurement="min"
+                    )
+                ),
+                vol.Optional(
+                    CONF_IGNITION_HYSTERESIS,
+                    default=self.config_entry.data.get(CONF_IGNITION_HYSTERESIS, DEFAULT_IGNITION_HYSTERESIS),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=15, step=1, unit_of_measurement="%"
+                    )
+                ),
+                vol.Optional(
+                    CONF_COOLDOWN_HYSTERESIS,
+                    default=self.config_entry.data.get(CONF_COOLDOWN_HYSTERESIS, DEFAULT_COOLDOWN_HYSTERESIS),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=5, step=0.5, unit_of_measurement="°C"
+                    )
+                ),
+                vol.Optional(
+                    CONF_MIN_BURNER_RUNTIME,
+                    default=self.config_entry.data.get(CONF_MIN_BURNER_RUNTIME, DEFAULT_MIN_BURNER_RUNTIME),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=30, step=1, unit_of_measurement="min"
+                    )
+                ),
+                vol.Optional(
+                    CONF_MIN_BURNER_OFF_TIME,
+                    default=self.config_entry.data.get(CONF_MIN_BURNER_OFF_TIME, DEFAULT_MIN_BURNER_OFF_TIME),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=30, step=1, unit_of_measurement="min"
                     )
                 ),
             }

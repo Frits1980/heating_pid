@@ -33,6 +33,10 @@ CONF_QUIET_MODE_MAX_FLOW: Final = "quiet_mode_max_flow"
 CONF_QUIET_MODE_RAMP_MINUTES: Final = "quiet_mode_ramp_minutes"
 CONF_PRESENCE_ENTITY: Final = "presence_entity"
 CONF_AWAY_DELAY: Final = "away_delay"
+CONF_IGNITION_HYSTERESIS: Final = "ignition_hysteresis"
+CONF_COOLDOWN_HYSTERESIS: Final = "cooldown_hysteresis"
+CONF_MIN_BURNER_RUNTIME: Final = "min_burner_runtime"
+CONF_MIN_BURNER_OFF_TIME: Final = "min_burner_off_time"
 
 # Configuration keys - Zones
 CONF_ZONES: Final = "zones"
@@ -63,6 +67,10 @@ DEFAULT_VALVE_MIN_OFF_TIME: Final = 5  # Minimum valve off time (minutes)
 DEFAULT_QUIET_MODE_MAX_FLOW: Final = 0.0  # Disabled by default (°C, 0 = disabled)
 DEFAULT_QUIET_MODE_RAMP_MINUTES: Final = 60  # Ramp-up time (minutes)
 DEFAULT_AWAY_DELAY: Final = 30  # Minutes before activating away mode
+DEFAULT_IGNITION_HYSTERESIS: Final = 5  # Ignition hysteresis (%)
+DEFAULT_COOLDOWN_HYSTERESIS: Final = 2.0  # Cooldown delta-T hysteresis (°C)
+DEFAULT_MIN_BURNER_RUNTIME: Final = 5  # Minimum burner runtime (minutes)
+DEFAULT_MIN_BURNER_OFF_TIME: Final = 3  # Minimum burner off time (minutes)
 
 # Default values - Zone
 DEFAULT_WINDOW_DROP: Final = 5.0  # Setpoint reduction when window open (°C)

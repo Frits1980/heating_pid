@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse
 from homeassistant.components.persistent_notification import (
@@ -63,7 +63,7 @@ async def _handle_reset_zone_learning(
     entries: list[EmsZoneMasterConfigEntry] = [
         entry
         for entry in hass.config_entries.async_entries(DOMAIN)
-        if entry.state.loaded  # type: ignore
+        if entry.state == ConfigEntryState.LOADED
     ]
 
     reset_count = 0
@@ -112,7 +112,7 @@ async def _handle_reset_zone_pid(
     entries: list[EmsZoneMasterConfigEntry] = [
         entry
         for entry in hass.config_entries.async_entries(DOMAIN)
-        if entry.state.loaded  # type: ignore
+        if entry.state == ConfigEntryState.LOADED
     ]
 
     reset_count = 0
@@ -163,7 +163,7 @@ async def _handle_force_valve_maintenance(
 
     # Find the zone
     for entry in hass.config_entries.async_entries(DOMAIN):
-        if entry.state.loaded and zone_name in entry.runtime_data.zones:  # type: ignore
+        if entry.state == ConfigEntryState.LOADED and zone_name in entry.runtime_data.zones:
             coordinator: EmsZoneMasterCoordinator = entry.runtime_data
             zone = coordinator.zones[zone_name]
 
@@ -197,7 +197,7 @@ async def _handle_clear_manual_setpoint(
     entries: list[EmsZoneMasterConfigEntry] = [
         entry
         for entry in hass.config_entries.async_entries(DOMAIN)
-        if entry.state.loaded  # type: ignore
+        if entry.state == ConfigEntryState.LOADED
     ]
 
     cleared_count = 0
@@ -251,7 +251,7 @@ async def _handle_set_default_setpoint(
     entries: list[EmsZoneMasterConfigEntry] = [
         entry
         for entry in hass.config_entries.async_entries(DOMAIN)
-        if entry.state.loaded  # type: ignore
+        if entry.state == ConfigEntryState.LOADED
     ]
 
     set_count = 0
@@ -499,7 +499,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: EmsZoneMasterConfigEntr
     # Unregister services if this is the last entry
     remaining_entries = [
         e for e in hass.config_entries.async_entries(DOMAIN)
-        if e.state.loaded and e.entry_id != entry.entry_id  # type: ignore
+        if e.state == ConfigEntryState.LOADED and e.entry_id != entry.entry_id
     ]
     if not remaining_entries:
         hass.services.async_remove(DOMAIN, "reset_zone_learning")
