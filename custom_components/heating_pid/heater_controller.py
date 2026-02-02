@@ -9,6 +9,7 @@ import logging
 from datetime import datetime
 
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 
 from .const import MIN_EFFICIENT_DELTA_T
 
@@ -280,12 +281,12 @@ class HeaterController:
 
         if burner_is_active and not self._heater_was_active:
             # Burner turning ON
-            self._burner_started_at = datetime.now()
+            self._burner_started_at = dt_util.now()
             self._burner_stopped_at = None
             _LOGGER.debug("Burner turned ON at %s", self._burner_started_at)
         elif not burner_is_active and self._heater_was_active:
             # Burner turning OFF
-            self._burner_stopped_at = datetime.now()
+            self._burner_stopped_at = dt_util.now()
             self._burner_started_at = None
             _LOGGER.debug("Burner turned OFF at %s", self._burner_stopped_at)
 
