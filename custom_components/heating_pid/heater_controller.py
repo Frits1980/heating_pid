@@ -191,6 +191,15 @@ class HeaterController:
 
         # Determine effective threshold with hysteresis
         if self._cooldown_active:
+            # Exit cooldown if boiler is cold (not responding)
+            if not boiler_is_responding:
+                _LOGGER.info(
+                    "Exiting cooldown mode: boiler not responding (flow=%.1f°C < %.1f°C)",
+                    flow_temp,
+                    self._min_egress,
+                )
+                return False
+
             # In cooldown - use higher threshold to exit (prevents oscillation)
             exit_threshold = MIN_EFFICIENT_DELTA_T + self._cooldown_hysteresis
             should_exit = delta_t >= exit_threshold
