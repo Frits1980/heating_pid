@@ -924,10 +924,14 @@ class EmsZoneMasterOptionsFlow(OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Handle zone action selection (edit/delete)."""
+        # Redirect if no zone selected (prevents translation error)
+        if not self._selected_zone:
+            return await self.async_step_manage_zones()
+
         return self.async_show_menu(
             step_id="zone_action",
             menu_options=["edit_zone", "delete_zone"],
-            description_placeholders={"zone_name": self._selected_zone or ""},
+            description_placeholders={"zone_name": self._selected_zone},
         )
 
     async def async_step_delete_zone(
