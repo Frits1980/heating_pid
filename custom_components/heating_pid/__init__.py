@@ -17,6 +17,7 @@ import logging
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse
+from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.components.persistent_notification import (
     async_create as async_notify,
     async_dismiss as async_dismiss_notification,
@@ -392,14 +393,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: EmsZoneMasterConfigEntry
     # Validate core entities
     missing_core = await _validate_core_entities(hass, entry)
     if missing_core:
-        async_notify(
-            hass,
-            f"Missing required entities:\n- " + "\n- ".join(missing_core),
-            title="EMS Zone Master - Configuration Error",
-            notification_id=f"{DOMAIN}_{entry.entry_id}_config_error",
+        _LOGGER.warning(
+            "Core entities not yet available, will retry: %s", missing_core
         )
-        _LOGGER.error("Missing core entities: %s", missing_core)
-        return False
+        raise ConfigEntryNotReady(
+            f"Missing required entities:\n- " + "\n- ".join(missing_core)
+        )
 
     # Initialize the persistence store
     store = EmsZoneMasterStore(hass)
